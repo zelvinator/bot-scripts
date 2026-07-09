@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Load config — whitelist users, target orgs, env path
-CONFIG="${SCRIPT_DIR}/config.sh"
+CONFIG="${SCRIPT_DIR}/../config.sh"
 if [ -f "$CONFIG" ]; then
   source "$CONFIG"
 else
