@@ -1,0 +1,3 @@
+# Tracker file — do not commit (changes every run)
+.zelvinator-processed.txt
+*.lock
