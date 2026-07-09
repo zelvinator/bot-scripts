@@ -163,4 +163,76 @@ for org in "${TARGET_ORGS[@]}"; do
 done
 process_search_items "$COMMENT_PRS" "comment"
 
+# ── 5) CI failures: zelvinator's PRs with failing checks ──
+# Uses a separate attempts tracker (max 3 tries per PR)
+CI_ATTEMPTS="${SCRIPT_DIR}/.zelvinator-ci-attempts.txt"
+touch "$CI_ATTEMPTS"
+
+ci_attempts_left() {
+  local key="$1"
+  local count
+  count=$(grep -c "^$key:" "$CI_ATTEMPTS" 2>/dev/null || echo 0)
+  [ "$count" -lt 3 ] && return 0 || return 1
+}
+
+ci_mark_attempt() {
+  local key="$1"
+  echo "$key:$(date +%s)" >> "$CI_ATTEMPTS"
+}
+
+for org in "${TARGET_ORGS[@]}"; do
+  ZELV_PRS=$(gh search prs "author:zelvinator is:pr state:open org:$org" \
+    --json number,title,url,repository,headRefName,headRefOid,updatedAt --limit 30 2>/dev/null || echo "[]")
+  while IFS= read -r item; do
+    [ -z "$item" ] && continue
+    local num repo sha key
+    num=$(echo "$item" | jq -r '.number')
+    repo=$(echo "$item" | jq -r '.repository.nameWithOwner')
+    sha=$(echo "$item" | jq -r '.headRefOid')
+    key="ci:$repo#$num"
+    
+    # Check attempt limit
+    ci_attempts_left "$key" || continue
+    
+    # Check check runs for failures
+    local failed
+    failed=$(gh api "/repos/$repo/commits/$sha/check-runs" --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "action_required" or .conclusion == "cancelled" or .conclusion == "timed_out") | {name: .name, conclusion: .conclusion, url: .details_url}]' 2>/dev/null || echo "[]")
+    local fail_count
+    fail_count=$(echo "$failed" | jq 'length' 2>/dev/null || echo 0)
+    [ "$fail_count" -eq 0 ] && continue
+    
+    # Also check commit statuses
+    local status_failed
+    status_failed=$(gh api "/repos/$repo/commits/$sha/status" --jq '[.statuses[] | select(.state == "failure" or .state == "error") | {context: .context, state: .state}]' 2>/dev/null || echo "[]")
+    
+    # Output as a CI failure item
+    local title body branch author
+    title=$(echo "$item" | jq -r '.title')
+    url=$(echo "$item" | jq -r '.url')
+    branch=$(echo "$item" | jq -r '.headRefName')
+    body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 500 || echo "")
+    
+    local json_result
+    json_result=$(jq -n \
+      --arg type "pr" \
+      --arg repo "$repo" \
+      --argjson num "$num" \
+      --arg title "$title" \
+      --arg url "$url" \
+      --arg body "$body" \
+      --arg branch "$branch" \
+      --arg author "zelvinator" \
+      --arg source "ci_failure" \
+      --argjson failed "$failed" \
+      --argjson status_failed "$status_failed" \
+      --arg trigger_comment "" \
+      '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment, failed_checks: $failed, failed_statuses: $status_failed}')
+    
+    # Claim in the main tracker
+    claim "pr:${repo}#${num}" || continue
+    add_result "$json_result"
+    ci_mark_attempt "$key"
+  done < <(echo "$ZELV_PRS" | jq -c '.[]' 2>/dev/null)
+done
+
 cat "$RESULTS_FILE" | jq '.'
