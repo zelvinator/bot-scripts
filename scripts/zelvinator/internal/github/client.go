@@ -151,8 +151,10 @@ type SearchResponse struct {
 
 // Comment is a GitHub issue/PR comment.
 type Comment struct {
-	User User   `json:"user"`
-	Body string `json:"body"`
+	ID        int    `json:"id"`
+	User      User   `json:"user"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
 }
 
 // ── Search Methods ──

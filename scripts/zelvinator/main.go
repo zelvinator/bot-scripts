@@ -83,6 +83,7 @@ type OutputItem struct {
 	Author         string              `json:"author,omitempty"`
 	TriggerSource  string              `json:"trigger_source"`
 	TriggerComment string              `json:"trigger_comment"`
+	CommentID      int                 `json:"-"` // used for claim key (unique per comment)
 	FailedChecks   []github.CheckRun   `json:"failed_checks,omitempty"`
 	FailedStatuses []github.StatusItem `json:"failed_statuses,omitempty"`
 }
@@ -151,11 +152,13 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			continue
 		}
 		for _, r := range results {
-			triggerComment := findHumanTriggerComment(client, r, cfg.WhitelistUsers)
+			triggerComment, commentID := findHumanTriggerComment(client, r, cfg.WhitelistUsers)
 			if triggerComment == "" {
 				continue
 			}
-			items = append(items, makeIssueItem(r, "comment", triggerComment))
+			item := makeIssueItem(r, "comment", triggerComment)
+			item.CommentID = commentID
+			items = append(items, item)
 		}
 	}
 
@@ -183,11 +186,13 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			continue
 		}
 		for _, r := range results {
-			triggerComment := findHumanTriggerComment(client, r, cfg.WhitelistUsers)
+			triggerComment, commentID := findHumanTriggerComment(client, r, cfg.WhitelistUsers)
 			if triggerComment == "" {
 				continue
 			}
-			items = append(items, makePRItem(r, client, "comment", triggerComment))
+			item := makePRItem(r, client, "comment", triggerComment)
+			item.CommentID = commentID
+			items = append(items, item)
 		}
 	}
 
@@ -262,6 +267,9 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	seen := make(map[string]bool)
 	for _, item := range items {
 		key := fmt.Sprintf("%s:%s#%d", item.Type, item.Repo, item.Number)
+		if item.CommentID != 0 {
+			key = fmt.Sprintf("%s:%s#%d:comment:%d", item.Type, item.Repo, item.Number, item.CommentID)
+		}
 		if seen[key] {
 			continue
 		}
@@ -337,14 +345,14 @@ func makePRItem(r github.SearchResult, client *github.Client, source, triggerCom
 	}
 }
 
-func findHumanTriggerComment(client *github.Client, item github.SearchResult, whitelist []string) string {
+func findHumanTriggerComment(client *github.Client, item github.SearchResult, whitelist []string) (string, int) {
 	repo := item.RepoName()
 	if repo == "" {
-		return ""
+		return "", 0
 	}
 	comments, err := client.GetIssueComments(repo, item.Number)
 	if err != nil {
-		return ""
+		return "", 0
 	}
 
 	// Build whitelist set
@@ -355,12 +363,14 @@ func findHumanTriggerComment(client *github.Client, item github.SearchResult, wh
 
 	// Find the most recent @zelvinator comment from a whitelisted user
 	var trigger string
+	var commentID int
 	for _, c := range comments {
 		if wl[c.User.Login] && strings.Contains(strings.ToLower(c.Body), "@zelvinator") {
 			trigger = c.Body
+			commentID = c.ID
 		}
 	}
-	return trigger
+	return trigger, commentID
 }
 
 // ── Comment Command ──
