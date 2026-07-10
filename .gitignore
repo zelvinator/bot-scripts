@@ -3,3 +3,4 @@
 *.lock
 
 .zelvinator-*
+scripts/zelvinator/zelvinator
