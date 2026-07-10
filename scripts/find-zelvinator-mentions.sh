@@ -55,9 +55,6 @@ RESULTS_FILE=$(mktemp); echo '[]' > "$RESULTS_FILE"
 trap 'rm -f "$RESULTS_FILE" "$LOCK_FILE"' EXIT
 add_result() { local j="$1"; local c; c=$(cat "$RESULTS_FILE"); echo "$c" | jq --argjson i "$j" '. + [$i]' > "$RESULTS_FILE"; }
 
-# Build a case pattern from the whitelist for use in shell case statements
-join_by() { local d="$1"; shift; echo "$(printf "$d%s" "$@")"; }
-WHITELIST_PATTERN=$(join_by "|" "${WHITELIST_USERS[@]}")
 
 # ── Process search results ──
 process_search_items() {
@@ -74,26 +71,30 @@ process_search_items() {
       num=$(echo "$item" | jq -r '.number // 0')
       repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
       [ -z "$repo" ] && continue
-
       local human_found=false
       trigger_comment=""
+      local raw_comments
+      raw_comments=$(gh api "/repos/$repo/issues/$num/comments?per_page=20" --jq '.[] | {user: {login: .user.login}, body: .body}' 2>/dev/null || echo "")
       while IFS= read -r comment_json; do
         [ -z "$comment_json" ] && continue
         local c_author c_body
-        c_author=$(echo "$comment_json" | jq -r '.user.login')
-        c_body=$(echo "$comment_json" | jq -r '.body' | head -c 500)
-        case "$c_author" in
-          $WHITELIST_PATTERN)
-            if echo "$c_body" | grep -qi '@zelvinator'; then
-              human_found=true
-              trigger_comment="$c_body"
-              break
-            fi
-            ;;
-        esac
-      done < <(gh api "/repos/$repo/issues/$num/comments?per_page=20" --jq '.[] | {user: {login: .user.login}, body: .body}' 2>/dev/null)
+        c_author=$(echo "$comment_json" | jq -r '.user.login' 2>/dev/null)
+        c_body=$(echo "$comment_json" | jq -r '.body' 2>/dev/null | head -c 500)
+        # Check if author is a known human and comment mentions @zelvinator
+        local whitelisted=false
+        for wl_user in "${WHITELIST_USERS[@]}"; do
+          [ "$c_author" = "$wl_user" ] && whitelisted=true && break
+        done
+        if [ "$whitelisted" = true ] && echo "$c_body" | grep -qi '@zelvinator'; then
+          human_found=true
+          trigger_comment="$c_body"
+          break
+        fi
+      done <<< "$raw_comments"
 
-      if [ "$human_found" = false ]; then continue; fi
+      if [ "$human_found" = false ]; then
+        continue
+      fi
     fi
 
     local num repo title url author body branch type
@@ -206,8 +207,8 @@ for org in "${TARGET_ORGS[@]}"; do
     status_failed=$(gh api "/repos/$repo/commits/$sha/status" --jq '[.statuses[] | select(.state == "failure" or .state == "error") | {context: .context, state: .state}]' 2>/dev/null || echo "[]")
     
     # Output as a CI failure item
-    local title body branch author
-    title=$(echo "$item" | jq -r '.title')
+    repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
+    title=$(echo "$item" | jq -r '.title // ""')
     url=$(echo "$item" | jq -r '.url')
     branch=$(echo "$item" | jq -r '.headRefName')
     body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 500 || echo "")
