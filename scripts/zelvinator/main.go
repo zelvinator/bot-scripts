@@ -135,6 +135,10 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			continue
 		}
 		for _, r := range results {
+			// Verify the result actually contains @zelvinator (guard against search API false positives)
+			if !strings.Contains(r.Body, "@zelvinator") && !strings.Contains(r.Title, "@zelvinator") {
+				continue
+			}
 			items = append(items, makeIssueItem(r, "body", ""))
 		}
 	}
@@ -163,6 +167,10 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			continue
 		}
 		for _, r := range results {
+			// Verify the result actually contains @zelvinator (guard against search API false positives)
+			if !strings.Contains(r.Body, "@zelvinator") && !strings.Contains(r.Title, "@zelvinator") {
+				continue
+			}
 			items = append(items, makePRItem(r, client, "body", ""))
 		}
 	}
