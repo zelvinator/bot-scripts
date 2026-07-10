@@ -6,6 +6,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source credentials if not already in environment
+if [ -z "${GITHUB_TOKEN:-}" ] && [ -f ~/.hermes/.env ]; then
+  set -a
+  source ~/.hermes/.env
+  set +a
+fi
+
 # Look for the zelvinator CLI
 ZELVINATOR_BIN="${SCRIPT_DIR}/zelvinator/zelvinator"
 BASH_FALLBACK="${SCRIPT_DIR}/find-zelvinator-mentions.sh.bash"

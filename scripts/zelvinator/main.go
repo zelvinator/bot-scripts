@@ -125,7 +125,7 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	var ciTracker *tracker.Tracker
 	ciTracker, _ = tracker.NewTracker(joinPath(cfg.ScriptDir, "scripts"), ".zelvinator-ci-attempts.txt")
 
-	var items []OutputItem
+	var items = make([]OutputItem, 0)
 
 	// 1) Issues: @zelvinator in title/body
 	for _, org := range cfg.TargetOrgs {
@@ -253,7 +253,7 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	}
 
 	// Deduplicate and claim
-	var output []OutputItem
+	output := make([]OutputItem, 0)
 	seen := make(map[string]bool)
 	for _, item := range items {
 		key := fmt.Sprintf("%s:%s#%d", item.Type, item.Repo, item.Number)
