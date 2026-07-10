@@ -124,7 +124,7 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 
 	// CI attempts tracker uses a separate file to count attempts
 	var ciTracker *tracker.Tracker
-	ciTracker, _ = tracker.NewTracker(joinPath(cfg.ScriptDir, "scripts"), ".zelvinator-ci-attempts.txt")
+	ciTracker, _ = tracker.NewTracker(cfg.ScriptDir, ".zelvinator-ci-attempts.txt")
 
 	var items = make([]OutputItem, 0)
 

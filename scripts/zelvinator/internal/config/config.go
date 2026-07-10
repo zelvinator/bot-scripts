@@ -24,26 +24,19 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine executable path: %w", err)
 	}
-	scriptDir := filepath.Dir(filepath.Dir(execPath)) // scripts/zelvinator/ -> scripts/ -> repo root
-	// Check if we're in scripts/zelvinator/ or scripts/
-	// config.sh should be in the repo root
-	repoRoot := scriptDir
+	// execPath is .../scripts/zelvinator/zelvinator
+	// scripts/ directory is the grandparent
+	scriptsDir := filepath.Dir(filepath.Dir(execPath)) // scripts/
+	repoRoot := filepath.Dir(scriptsDir)               // repo root = parent of scripts/
 
 	// Try to find config.sh
 	configPath := filepath.Join(repoRoot, "config.sh")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		// Maybe we're running from scripts/ directly
-		configPath = filepath.Join(repoRoot, "..", "config.sh")
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("config.sh not found (tried %s and %s)",
-				filepath.Join(repoRoot, "config.sh"),
-				filepath.Join(repoRoot, "..", "config.sh"))
-		}
-		repoRoot = filepath.Dir(filepath.Dir(configPath))
+		return nil, fmt.Errorf("config.sh not found at %s", configPath)
 	}
 
 	cfg := &Config{
-		ScriptDir: repoRoot,
+		ScriptDir: scriptsDir, // scripts/ directory (for tracker files)
 	}
 	if err := cfg.parseConfigFile(configPath); err != nil {
 		return nil, err
