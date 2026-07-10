@@ -96,17 +96,35 @@ func (c *Client) postJSON(url string, payload, target interface{}) error {
 
 // SearchResult represents a GitHub search result item.
 type SearchResult struct {
-	Number     int            `json:"number"`
-	Title      string         `json:"title"`
-	URL        string         `json:"url"`
-	HTMLURL    string         `json:"html_url"`
-	Repository Repository     `json:"repository"`
-	PullReq    *PullReqInfo   `json:"pull_request,omitempty"`
-	User       User           `json:"user"`
-	Body       string         `json:"body,omitempty"`
-	HeadRef    string         `json:"headRefName,omitempty"`
-	HeadRefOid string         `json:"headRefOid,omitempty"`
-	UpdatedAt  string         `json:"updatedAt,omitempty"`
+	Number        int          `json:"number"`
+	Title         string       `json:"title"`
+	URL           string       `json:"url"`
+	HTMLURL       string       `json:"html_url"`
+	RepositoryURL string       `json:"repository_url"`
+	Repository    Repository  `json:"repository"`
+	PullReq       *PullReqInfo `json:"pull_request,omitempty"`
+	User          User        `json:"user"`
+	Body          string      `json:"body,omitempty"`
+	HeadRef       string      `json:"headRefName,omitempty"`
+	HeadRefOid    string      `json:"headRefOid,omitempty"`
+	UpdatedAt     string      `json:"updatedAt,omitempty"`
+}
+
+// RepoName extracts the owner/name from Repository struct or repository_url.
+func (s *SearchResult) RepoName() string {
+	if s.Repository.NameWithOwner != "" {
+		return s.Repository.NameWithOwner
+	}
+	if s.Repository.FullName != "" {
+		return s.Repository.FullName
+	}
+	if s.RepositoryURL != "" {
+		parts := strings.Split(s.RepositoryURL, "/repos/")
+		if len(parts) == 2 {
+			return parts[1]
+		}
+	}
+	return ""
 }
 
 // Repository is a GitHub repo reference.

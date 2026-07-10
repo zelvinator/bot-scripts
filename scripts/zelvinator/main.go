@@ -199,10 +199,7 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			continue
 		}
 		for _, r := range results {
-			repo := r.Repository.NameWithOwner
-			if repo == "" {
-				repo = r.Repository.FullName
-			}
+			repo := r.RepoName()
 			if repo == "" {
 				continue
 			}
@@ -282,10 +279,7 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 }
 
 func makeIssueItem(r github.SearchResult, source, triggerComment string) OutputItem {
-	repo := r.Repository.NameWithOwner
-	if repo == "" {
-		repo = r.Repository.FullName
-	}
+	repo := r.RepoName()
 	htmlURL := r.HTMLURL
 	if htmlURL == "" {
 		htmlURL = fmt.Sprintf("https://github.com/%s/issues/%d", repo, r.Number)
@@ -307,10 +301,7 @@ func makeIssueItem(r github.SearchResult, source, triggerComment string) OutputI
 }
 
 func makePRItem(r github.SearchResult, client *github.Client, source, triggerComment string) OutputItem {
-	repo := r.Repository.NameWithOwner
-	if repo == "" {
-		repo = r.Repository.FullName
-	}
+	repo := r.RepoName()
 
 	htmlURL := r.HTMLURL
 	if htmlURL == "" {
@@ -347,10 +338,7 @@ func makePRItem(r github.SearchResult, client *github.Client, source, triggerCom
 }
 
 func findHumanTriggerComment(client *github.Client, item github.SearchResult, whitelist []string) string {
-	repo := item.Repository.NameWithOwner
-	if repo == "" {
-		repo = item.Repository.FullName
-	}
+	repo := item.RepoName()
 	if repo == "" {
 		return ""
 	}
