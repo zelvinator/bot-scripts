@@ -321,6 +321,19 @@ func (c *Client) CreateReview(repo string, number int, body string, event string
 	return c.postJSON(url, payload, nil)
 }
 
+// ReplyToReviewComment posts an inline reply to a specific PR review comment.
+// The reply appears threaded under the original review comment on the PR's Files changed tab.
+type ReplyPayload struct {
+	Body       string `json:"body"`
+	InReplyTo  int    `json:"in_reply_to"`
+}
+
+func (c *Client) ReplyToReviewComment(repo string, number int, reviewCommentID int, body string) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments", repo, number)
+	payload := ReplyPayload{Body: body, InReplyTo: reviewCommentID}
+	return c.postJSON(url, payload, nil)
+}
+
 // ── CI Check Types ──
 
 // CheckRun is a single check run from the GitHub API.

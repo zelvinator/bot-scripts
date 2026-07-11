@@ -220,9 +220,10 @@ while IFS= read -r item; do
     --arg type "pr" --arg repo "$repo" --argjson num "$num" \
     --arg title "$title" --arg url "$url" \
     --arg body "$body" --arg branch "$branch" \
-    --arg author "$author" --arg source "comment" \
+    --arg author "$author" --arg source "review_comment" \
     --arg trigger_comment "$trigger_comment" \
-    '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment}')
+    --argjson review_comment_id "$comment_id" \
+    '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment, review_comment_id: $review_comment_id}')
   add_result "$json_result"
 done < <(echo "$REVIEW_PRS" | jq -c '.[]' 2>/dev/null)
 

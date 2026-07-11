@@ -61,6 +61,8 @@ func main() {
 		runComment(client, os.Args[2:])
 	case "review":
 		runReview(client, os.Args[2:])
+	case "reply-review":
+		runReplyReview(client, os.Args[2:])
 	case "ci-fix":
 		runCIFix(client, cfg, os.Args[2:])
 	default:
@@ -83,6 +85,7 @@ type OutputItem struct {
 	Author         string              `json:"author,omitempty"`
 	TriggerSource  string              `json:"trigger_source"`
 	TriggerComment string              `json:"trigger_comment"`
+	ReviewCommentID int                `json:"review_comment_id,omitempty"`
 	CommentID      int                 `json:"-"` // used for claim key (unique per comment)
 	FailedChecks   []github.CheckRun   `json:"failed_checks,omitempty"`
 	FailedStatuses []github.StatusItem `json:"failed_statuses,omitempty"`
@@ -286,8 +289,9 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			BodyPreview:    body,
 			Branch:         prInfo.Head.Ref,
 			Author:         issue.User.Login,
-			TriggerSource:  "comment",
+			TriggerSource:  "review_comment",
 			TriggerComment: triggerComment,
+			ReviewCommentID: commentID,
 			CommentID:      commentID,
 		})
 	}
@@ -516,6 +520,34 @@ func runReview(client *github.Client, args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Review posted on %s#%d (event=%s)\n", repo, number, event)
+}
+
+// ── Reply to Review Comment Command ──
+
+func runReplyReview(client *github.Client, args []string) {
+	if len(args) < 4 {
+		fmt.Fprintf(os.Stderr, "Usage: zelvinator reply-review <repo> <number> <review_comment_id> <body>\n")
+		fmt.Fprintf(os.Stderr, "  Posts an inline reply to a specific PR review comment (threaded under it).\n")
+		os.Exit(1)
+	}
+	repo := args[0]
+	number, err := strconv.Atoi(args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid number: %s\n", args[1])
+		os.Exit(1)
+	}
+	reviewCommentID, err := strconv.Atoi(args[2])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid review_comment_id: %s\n", args[2])
+		os.Exit(1)
+	}
+	body := strings.Join(args[3:], " ")
+
+	if err := client.ReplyToReviewComment(repo, number, reviewCommentID, body); err != nil {
+		fmt.Fprintf(os.Stderr, "Reply error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Inline reply posted on %s#%d (review comment %d)\n", repo, number, reviewCommentID)
 }
 
 // ── CI Fix Command ──
