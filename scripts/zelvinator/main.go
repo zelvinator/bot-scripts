@@ -196,7 +196,103 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 		}
 	}
 
-	// 5) CI failures: zelvinator's PRs with failing checks
+	// 5) PR review comments: @zelvinator in inline code review discussions
+	// Check review comments on all open PRs across target orgs. This catches
+	// @zelvinator mentions in inline code reviews that the in:comments search misses.
+	reviewPRSet := make(map[string]int) // "repo#number" -> number
+
+	// Collect all open PRs per org (up to 30 most recently updated per org)
+	for _, org := range cfg.TargetOrgs {
+		openPRs, err := client.SearchOpenPRs(org)
+		if err == nil {
+			for _, r := range openPRs {
+				repo := r.RepoName()
+				if repo != "" {
+					reviewPRSet[fmt.Sprintf("%s#%d", repo, r.Number)] = r.Number
+				}
+			}
+		}
+	}
+
+	// Build whitelist set for review comments
+	wlSet := make(map[string]bool)
+	for _, u := range cfg.WhitelistUsers {
+		wlSet[u] = true
+	}
+
+	for key := range reviewPRSet {
+		parts := strings.SplitN(key, "#", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		repo := parts[0]
+		num, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+
+		// Fetch PR review comments
+		reviewComments, err := client.GetPRReviewComments(repo, num)
+		if err != nil {
+			continue
+		}
+
+		// Find the most recent @zelvinator review comment from a whitelisted user
+		var triggerComment string
+		var commentID int
+		for _, rc := range reviewComments {
+			if wlSet[rc.User.Login] && strings.Contains(strings.ToLower(rc.Body), "@zelvinator") {
+				triggerComment = rc.Body
+				commentID = rc.ID
+			}
+		}
+		if triggerComment == "" {
+			continue
+		}
+
+		// Fetch PR details for the output item
+		prInfo, err := client.GetPR(repo, num)
+		if err != nil {
+			continue
+		}
+
+		// Get PR title from a lightweight search result. Since we already have the PR
+		// in reviewPRSet (from SearchPRs or SearchOpenPRs), we can use it, but we need the title.
+		// Fetch the issue to get title and author.
+		type prIssue struct {
+			Title string    `json:"title"`
+			User  github.User `json:"user"`
+		}
+		var issue prIssue
+		issueURL := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", repo, num)
+		if err := client.GetJSON(issueURL, &issue); err != nil {
+			// Skip if we can't get the title — unlikely but possible
+			continue
+		}
+
+		body := prInfo.Body
+		if len(body) > 1500 {
+			body = body[:1500]
+		}
+
+		htmlURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, num)
+
+		items = append(items, OutputItem{
+			Type:           "pr",
+			Repo:           repo,
+			Number:         num,
+			Title:          issue.Title,
+			URL:            htmlURL,
+			BodyPreview:    body,
+			Branch:         prInfo.Head.Ref,
+			Author:         issue.User.Login,
+			TriggerSource:  "comment",
+			TriggerComment: triggerComment,
+			CommentID:      commentID,
+		})
+	}
+
+	// 6) CI failures: zelvinator's PRs with failing checks
 	for _, org := range cfg.TargetOrgs {
 		results, err := client.SearchAuthorPRs(org, "zelvinator")
 		if err != nil {

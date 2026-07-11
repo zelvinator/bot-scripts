@@ -48,8 +48,8 @@ func (c *Client) doRequest(method, url string, body io.Reader) (*http.Response, 
 	return c.client.Do(req)
 }
 
-// getJSON performs a GET and decodes the JSON response.
-func (c *Client) getJSON(url string, target interface{}) error {
+// GetJSON performs a GET and decodes the JSON response.
+func (c *Client) GetJSON(url string, target interface{}) error {
 	resp, err := c.doRequest("GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("GET %s: %w", url, err)
@@ -157,6 +157,14 @@ type Comment struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// ReviewComment is a PR review comment (inline code discussion on a specific line).
+type ReviewComment struct {
+	ID        int    `json:"id"`
+	User      User   `json:"user"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+}
+
 // ── Search Methods ──
 
 // SearchIssues finds issues mentioning @zelvinator in body/title.
@@ -164,7 +172,7 @@ func (c *Client) SearchIssues(org string) ([]SearchResult, error) {
 	query := fmt.Sprintf("@zelvinator+in:title,body+is:issue+org:%s+state:open", org)
 	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=50&sort=created&order=desc", query)
 	var resp SearchResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	// Filter out PRs (they shouldn't appear but just in case)
@@ -182,7 +190,7 @@ func (c *Client) SearchIssueComments(org string) ([]SearchResult, error) {
 	query := fmt.Sprintf("@zelvinator+in:comments+is:issue+org:%s+state:open", org)
 	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=100&sort=created&order=desc", query)
 	var resp SearchResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	var issues []SearchResult
@@ -199,7 +207,7 @@ func (c *Client) SearchPRs(org string) ([]SearchResult, error) {
 	query := fmt.Sprintf("@zelvinator+in:title,body+type:pr+org:%s+state:open", org)
 	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=50&sort=created&order=desc", query)
 	var resp SearchResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	var prs []SearchResult
@@ -216,7 +224,7 @@ func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
 	query := fmt.Sprintf("@zelvinator+in:comments+type:pr+org:%s+state:open", org)
 	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=100&sort=created&order=desc", query)
 	var resp SearchResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	var prs []SearchResult
@@ -233,10 +241,28 @@ func (c *Client) SearchAuthorPRs(org, author string) ([]SearchResult, error) {
 	query := fmt.Sprintf("author:%s+is:pr+state:open+org:%s", author, org)
 	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=30&sort=updated&order=desc", query)
 	var resp SearchResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
+}
+
+// SearchOpenPRs finds all open PRs in an org, limited to recently updated.
+// Used to discover PRs that mention @zelvinator only in review comments.
+func (c *Client) SearchOpenPRs(org string) ([]SearchResult, error) {
+	query := fmt.Sprintf("is:pr+state:open+org:%s", org)
+	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=30&sort=updated&order=desc", query)
+	var resp SearchResponse
+	if err := c.GetJSON(url, &resp); err != nil {
+		return nil, err
+	}
+	var prs []SearchResult
+	for _, item := range resp.Items {
+		if item.PullReq != nil {
+			prs = append(prs, item)
+		}
+	}
+	return prs, nil
 }
 
 // ── Item Retrieval ──
@@ -247,7 +273,7 @@ func (c *Client) GetIssueBody(repo string, number int) (string, error) {
 	var result struct {
 		Body string `json:"body"`
 	}
-	if err := c.getJSON(url, &result); err != nil {
+	if err := c.GetJSON(url, &result); err != nil {
 		return "", err
 	}
 	return result.Body, nil
@@ -257,7 +283,17 @@ func (c *Client) GetIssueBody(repo string, number int) (string, error) {
 func (c *Client) GetIssueComments(repo string, number int) ([]Comment, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments?per_page=20&sort=created", repo, number)
 	var comments []Comment
-	if err := c.getJSON(url, &comments); err != nil {
+	if err := c.GetJSON(url, &comments); err != nil {
+		return nil, err
+	}
+	return comments, nil
+}
+
+// GetPRReviewComments fetches review comments on a pull request (inline code discussions).
+func (c *Client) GetPRReviewComments(repo string, number int) ([]ReviewComment, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments?per_page=50&sort=created", repo, number)
+	var comments []ReviewComment
+	if err := c.GetJSON(url, &comments); err != nil {
 		return nil, err
 	}
 	return comments, nil
@@ -315,7 +351,7 @@ type StatusResponse struct {
 func (c *Client) GetCheckRuns(repo, sha string) ([]CheckRun, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s/check-runs", repo, sha)
 	var resp CheckRunResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	var failed []CheckRun
@@ -332,7 +368,7 @@ func (c *Client) GetCheckRuns(repo, sha string) ([]CheckRun, error) {
 func (c *Client) GetStatuses(repo, sha string) ([]StatusItem, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s/status", repo, sha)
 	var resp StatusResponse
-	if err := c.getJSON(url, &resp); err != nil {
+	if err := c.GetJSON(url, &resp); err != nil {
 		return nil, err
 	}
 	var failed []StatusItem
@@ -354,7 +390,7 @@ func (c *Client) CheckRunLogs(repo string, checkRunID int) (string, error) {
 			Text    string `json:"text"`
 		} `json:"output"`
 	}
-	if err := c.getJSON(url, &cr); err != nil {
+	if err := c.GetJSON(url, &cr); err != nil {
 		return "", err
 	}
 	return cr.Output.Text, nil
@@ -364,7 +400,7 @@ func (c *Client) CheckRunLogs(repo string, checkRunID int) (string, error) {
 func (c *Client) GetPR(repo string, number int) (*PRInfo, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d", repo, number)
 	var info PRInfo
-	if err := c.getJSON(url, &info); err != nil {
+	if err := c.GetJSON(url, &info); err != nil {
 		return nil, err
 	}
 	return &info, nil

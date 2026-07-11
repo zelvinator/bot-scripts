@@ -164,7 +164,69 @@ for org in "${TARGET_ORGS[@]}"; do
 done
 process_search_items "$COMMENT_PRS" "comment"
 
-# ── 5) CI failures: zelvinator's PRs with failing checks ──
+# ── 5) PR review comments: @zelvinator in inline code review discussions ──
+# GitHub's in:comments search does NOT cover PR review comments (inline code reviews).
+# We need to fetch review comments directly for each open PR.
+REVIEW_PRS='[]'
+for org in "${TARGET_ORGS[@]}"; do
+  ORG_PRS=$(gh search prs "state:open org:$org" --json number,title,url,repository,author --limit 30 2>/dev/null || echo '[]')
+  REVIEW_PRS=$(echo "$REVIEW_PRS" "$ORG_PRS" | jq -s 'add' 2>/dev/null || echo '[]')
+done
+
+# Process each PR for review comments
+while IFS= read -r item; do
+  [ -z "$item" ] && continue
+  num=$(echo "$item" | jq -r '.number // 0')
+  repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
+  [ -z "$repo" ] || [ "$num" = "0" ] && continue
+
+  # Fetch review comments for this PR
+  review_comments=$(gh api "/repos/$repo/pulls/$num/comments?per_page=50" --jq '.[] | {id: .id, user: {login: .user.login}, body: .body}' 2>/dev/null || echo "")
+  [ -z "$review_comments" ] && continue
+
+  # Check each review comment for @zelvinator by a whitelisted user
+  human_found=false
+  trigger_comment=""
+  comment_id=0
+  while IFS= read -r rc; do
+    [ -z "$rc" ] && continue
+    c_author=$(echo "$rc" | jq -r '.user.login' 2>/dev/null)
+    c_body=$(echo "$rc" | jq -r '.body' 2>/dev/null | head -c 500)
+    c_id=$(echo "$rc" | jq -r '.id // 0' 2>/dev/null)
+    whitelisted=false
+    for wl_user in "${WHITELIST_USERS[@]}"; do
+      [ "$c_author" = "$wl_user" ] && whitelisted=true && break
+    done
+    if [ "$whitelisted" = true ] && echo "$c_body" | grep -qi '@zelvinator'; then
+      human_found=true
+      trigger_comment="$c_body"
+      comment_id="$c_id"
+    fi
+  done <<< "$review_comments"
+
+  [ "$human_found" = false ] && continue
+
+  # Claim with comment-specific key
+  claim "pr:${repo}#${num}:comment:${comment_id}" || continue
+
+  # Build output
+  title=$(echo "$item" | jq -r '.title // ""')
+  url=$(echo "$item" | jq -r '.html_url // .url // ""')
+  author=$(echo "$item" | jq -r '.author.login // ""')
+  branch=$(gh pr view "$num" --repo "$repo" --json headRefName --jq '.headRefName' 2>/dev/null || echo "")
+  body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 1500 || echo "")
+  local json_result
+  json_result=$(jq -n \
+    --arg type "pr" --arg repo "$repo" --argjson num "$num" \
+    --arg title "$title" --arg url "$url" \
+    --arg body "$body" --arg branch "$branch" \
+    --arg author "$author" --arg source "comment" \
+    --arg trigger_comment "$trigger_comment" \
+    '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment}')
+  add_result "$json_result"
+done < <(echo "$REVIEW_PRS" | jq -c '.[]' 2>/dev/null)
+
+# ── 6) CI failures: zelvinator's PRs with failing checks ──
 # Uses a separate attempts tracker (max 3 tries per PR)
 CI_ATTEMPTS="${SCRIPT_DIR}/.zelvinator-ci-attempts.txt"
 touch "$CI_ATTEMPTS"
