@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds the bot's configuration.
@@ -185,24 +187,19 @@ func parseBashArrayValues(s string) []string {
 	return vals
 }
 
-// LoadEnv reads GITHUB_TOKEN from the Hermes .env file.
+// LoadEnv reads GITHUB_TOKEN from the Hermes .env file using godotenv.
 func (c *Config) LoadEnv() (string, error) {
-	data, err := os.ReadFile(c.HermesEnvPath)
-	if err != nil {
-		return "", fmt.Errorf("cannot read env file %s: %w", c.HermesEnvPath, err)
+	// Load sets the parsed values as standard environment variables
+	if err := godotenv.Load(c.HermesEnvPath); err != nil {
+		return "", fmt.Errorf("cannot load env file %s: %w", c.HermesEnvPath, err)
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "GITHUB_TOKEN=") {
-			val := strings.TrimPrefix(line, "GITHUB_TOKEN=")
-			val = strings.Trim(val, "\"'")
-			if val != "" {
-				return val, nil
-			}
-		}
+
+	token := os.Getenv("GITHUB_TOKEN")
+	if token == "" {
+		return "", fmt.Errorf("GITHUB_TOKEN not found in environment or file %s", c.HermesEnvPath)
 	}
-	return "", fmt.Errorf("GITHUB_TOKEN not found in %s", c.HermesEnvPath)
+
+	return token, nil
 }
 
 // resolveBashVar resolves simple bash variable expressions like ${VAR:-default}.
