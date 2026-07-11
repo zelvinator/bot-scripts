@@ -34,6 +34,12 @@ type OutputItem struct {
 	ContentWarning  string              `json:"content_warning,omitempty"` // "injection" if injection patterns detected
 }
 
+// defaultBodyPreviewLen is the max characters to include in body_preview JSON output.
+// This is a preview, not the full body. GitHub's limit is 65,536 chars for PR bodies,
+// but for preview purposes 1,500 chars is sufficient to capture context while keeping
+// the JSON output manageable. Increase if more context is needed.
+const defaultBodyPreviewLen = 1500
+
 // joinPath is a shadow-free alias for filepath.Join.
 var joinPath = filepath.Join
 
@@ -195,8 +201,8 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 		}
 
 		body := prInfo.Body
-		if len(body) > 1500 {
-			body = body[:1500]
+		if len(body) > defaultBodyPreviewLen {
+			body = body[:defaultBodyPreviewLen]
 		}
 
 		htmlURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, num)
@@ -256,8 +262,8 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			}
 
 			body, _ := client.GetIssueBody(repo, r.Number)
-			if len(body) > 1500 {
-				body = body[:1500]
+			if len(body) > defaultBodyPreviewLen {
+				body = body[:defaultBodyPreviewLen]
 			}
 
 			htmlURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, r.Number)
@@ -340,8 +346,8 @@ func makeIssueItem(r github.SearchResult, source, triggerComment string) OutputI
 		htmlURL = fmt.Sprintf("https://github.com/%s/issues/%d", repo, r.Number)
 	}
 	body := r.Body
-	if len(body) > 1500 {
-		body = body[:1500]
+	if len(body) > defaultBodyPreviewLen {
+		body = body[:defaultBodyPreviewLen]
 	}
 	return OutputItem{
 		Type:           "issue",
@@ -373,8 +379,8 @@ func makePRItem(r github.SearchResult, client *github.Client, source, triggerCom
 	if body == "" {
 		body = r.Body
 	}
-	if len(body) > 1500 {
-		body = body[:1500]
+	if len(body) > defaultBodyPreviewLen {
+		body = body[:defaultBodyPreviewLen]
 	}
 
 	return OutputItem{

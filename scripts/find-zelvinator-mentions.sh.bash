@@ -34,6 +34,9 @@ TOKEN="${GITHUB_TOKEN:-}"
 [ -z "$TOKEN" ] && { echo '[]'; exit 0; }
 export GH_TOKEN="$TOKEN"
 
+# Body preview length for JSON output (preview, not full body)
+BODY_PREVIEW_LEN=1500
+
 [ "${1:-}" = "--reset" ] && { rm -f "$TRACKER_FILE"; echo "Tracker reset."; exit 0; }
 touch "$TRACKER_FILE"
 
@@ -141,7 +144,7 @@ process_search_items() {
 
     if [ "$type" = "pr" ]; then
       branch=$(gh pr view "$num" --repo "$repo" --json headRefName --jq '.headRefName' 2>/dev/null || echo "")
-      body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 1500 || echo "")
+      body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c "$BODY_PREVIEW_LEN" || echo "")
       local json_result
       json_result=$(jq -n \
         --arg type "pr" --arg repo "$repo" --argjson num "$num" \
@@ -152,7 +155,7 @@ process_search_items() {
         '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment}' 2>/dev/null) || continue
       add_result "$json_result"
     else
-      body=$(gh issue view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 1500 || echo "")
+      body=$(gh issue view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c "$BODY_PREVIEW_LEN" || echo "")
       local json_result
       json_result=$(jq -n \
         --arg type "issue" --arg repo "$repo" --argjson num "$num" \
@@ -220,20 +223,22 @@ done <<< "$review_comments"
 
 claim "pr:${repo}#${num}:comment:${comment_id}" || continue
 
-title=$(echo "$item" | jq -r '.title // ""' 2>/dev/null) || continue
-url=$(echo "$item" | jq -r '.html_url // .url // ""' 2>/dev/null) || continue
-author=$(echo "$item" | jq -r '.author.login // ""' 2>/dev/null) || continue
-branch=$(gh pr view "$num" --repo "$repo" --json headRefName --jq '.headRefName' 2>/dev/null || echo "")
-body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 1500 || echo "")
-json_result=$(jq -n \
-  --arg type "pr" --arg repo "$repo" --argjson num "$num" \
-  --arg title "$title" --arg url "$url" \
-  --arg body "$body" --arg branch "$branch" \
-  --arg author "$author" --arg source "review_comment" \
-  --arg trigger_comment "$trigger_comment" \
-  --argjson review_comment_id "$comment_id" \
-  '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment, review_comment_id: $review_comment_id}' 2>/dev/null) || continue
-add_result "$json_result"
+  # Build output
+  local title url author branch body json_result
+  title=$(echo "$item" | jq -r '.title // ""')
+  url=$(echo "$item" | jq -r '.html_url // .url // ""')
+  author=$(echo "$item" | jq -r '.author.login // ""')
+  branch=$(gh pr view "$num" --repo "$repo" --json headRefName --jq '.headRefName' 2>/dev/null || echo "")
+  body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c "$BODY_PREVIEW_LEN" || echo "")
+  json_result=$(jq -n \
+    --arg type "pr" --arg repo "$repo" --argjson num "$num" \
+    --arg title "$title" --arg url "$url" \
+    --arg body "$body" --arg branch "$branch" \
+    --arg author "$author" --arg source "review_comment" \
+    --arg trigger_comment "$trigger_comment" \
+    --argjson review_comment_id "$comment_id" \
+    '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment, review_comment_id: $review_comment_id}')
+  add_result "$json_result"
 done < <(echo "$REVIEW_PRS" | jq -c '.[]' 2>/dev/null)
 
 # ── 6) CI failures: zelvinator's PRs with failing checks ──
@@ -327,8 +332,12 @@ while IFS= read -r item; do
 
     claim "assigned:issue:${repo}#${num}" || continue
 
-    html_url=$(echo "$item" | jq -r '.html_url // ""' 2>/dev/null) || continue
-    body=$(echo "$body" | head -c 1500)
+    local url html_url
+    url=$(echo "$item" | jq -r '.url // ""')
+    html_url=$(echo "$item" | jq -r '.html_url // ""')
+
+    body=$(echo "$body" | head -c "$BODY_PREVIEW_LEN")
+    local json_result
     json_result=$(jq -n \
       --arg type "issue" \
       --arg repo "$repo" \
