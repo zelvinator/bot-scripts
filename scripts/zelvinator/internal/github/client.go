@@ -1,26 +1,27 @@
 // Package github provides a GitHub API client for the zelvinator bot.
+// It wraps google/go-github to provide a stable interface for the rest of the bot.
 package github
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
+
+	gh "github.com/google/go-github/v69/github"
 )
 
-// Client wraps the GitHub REST API.
+// Client wraps the GitHub REST API via go-github.
 type Client struct {
 	token  string
-	client *http.Client
+	client *gh.Client
 }
 
 // NewClient creates a GitHub client with a token.
 func NewClient(token string) *Client {
 	return &Client{
 		token:  token,
-		client: &http.Client{},
+		client: gh.NewClient(nil).WithAuthToken(token),
 	}
 }
 
@@ -33,63 +34,15 @@ func NewClientFromEnv() (*Client, error) {
 	return NewClient(token), nil
 }
 
-// doRequest performs an authenticated GitHub API request.
-func (c *Client) doRequest(method, url string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequest(method, url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "zelvinator-bot/1.0")
-	return c.client.Do(req)
-}
-
 // GetJSON performs a GET and decodes the JSON response.
+// Used by main.go's find command for ad-hoc API calls.
 func (c *Client) GetJSON(url string, target interface{}) error {
-	resp, err := c.doRequest("GET", url, nil)
+	req, err := c.client.NewRequest("GET", url, nil)
 	if err != nil {
-		return fmt.Errorf("GET %s: %w", url, err)
+		return fmt.Errorf("create request: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GET %s: HTTP %d: %s", url, resp.StatusCode, string(body))
-	}
-
-	return json.NewDecoder(resp.Body).Decode(target)
-}
-
-// postJSON performs a POST with a JSON body.
-func (c *Client) postJSON(url string, payload, target interface{}) error {
-	var body io.Reader
-	if payload != nil {
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("marshal payload: %w", err)
-		}
-		body = strings.NewReader(string(data))
-	}
-
-	resp, err := c.doRequest("POST", url, body)
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("POST %s: HTTP %d: %s", url, resp.StatusCode, string(respBody))
-	}
-
-	if target != nil {
-		return json.NewDecoder(resp.Body).Decode(target)
-	}
-	return nil
+	_, err = c.client.Do(context.Background(), req, target)
+	return err
 }
 
 // ── Search Types ──
@@ -101,14 +54,14 @@ type SearchResult struct {
 	URL           string       `json:"url"`
 	HTMLURL       string       `json:"html_url"`
 	RepositoryURL string       `json:"repository_url"`
-	Repository    Repository  `json:"repository"`
+	Repository    Repository   `json:"repository"`
 	PullReq       *PullReqInfo `json:"pull_request,omitempty"`
-	User          User        `json:"user"`
-	Body          string      `json:"body,omitempty"`
-	Assignees     []User      `json:"assignees,omitempty"`
-	HeadRef       string      `json:"headRefName,omitempty"`
-	HeadRefOid    string      `json:"headRefOid,omitempty"`
-	UpdatedAt     string      `json:"updatedAt,omitempty"`
+	User          User         `json:"user"`
+	Body          string       `json:"body,omitempty"`
+	Assignees     []User       `json:"assignees,omitempty"`
+	HeadRef       string       `json:"headRefName,omitempty"`
+	HeadRefOid    string       `json:"headRefOid,omitempty"`
+	UpdatedAt     string       `json:"updatedAt,omitempty"`
 }
 
 // RepoName extracts the owner/name from Repository struct or repository_url.
@@ -145,11 +98,6 @@ type User struct {
 	Login string `json:"login"`
 }
 
-// SearchResponse is the top-level GitHub search response.
-type SearchResponse struct {
-	Items []SearchResult `json:"items"`
-}
-
 // Comment is a GitHub issue/PR comment.
 type Comment struct {
 	ID        int    `json:"id"`
@@ -166,19 +114,72 @@ type ReviewComment struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// ── Helper: owner/repo split ──
+
+func splitRepo(repo string) (string, string) {
+	parts := strings.SplitN(repo, "/", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
+}
+
 // ── Search Methods ──
+
+// searchIssues runs a general search and returns typed results.
+func (c *Client) searchIssues(q string) ([]SearchResult, error) {
+	opts := &gh.SearchOptions{
+		Sort:  "created",
+		Order: "desc",
+		ListOptions: gh.ListOptions{PerPage: 100},
+	}
+	result, _, err := c.client.Search.Issues(context.Background(), q, opts)
+	if err != nil {
+		return nil, err
+	}
+	var items []SearchResult
+	for _, i := range result.Issues {
+		items = append(items, convertIssue(i))
+	}
+	return items, nil
+}
+
+func convertIssue(i *gh.Issue) SearchResult {
+	r := SearchResult{
+		Number:        i.GetNumber(),
+		Title:         i.GetTitle(),
+		URL:           i.GetURL(),
+		HTMLURL:       i.GetHTMLURL(),
+		RepositoryURL: i.GetRepositoryURL(),
+		Body:          i.GetBody(),
+		User:          User{Login: i.GetUser().GetLogin()},
+		HeadRef:       i.GetPullRequestLinks().GetURL(),
+	}
+	if i.PullRequestLinks != nil {
+		r.PullReq = &PullReqInfo{URL: i.PullRequestLinks.GetURL()}
+	}
+	if i.Repository != nil {
+		r.Repository = Repository{
+			NameWithOwner: i.Repository.GetFullName(),
+			FullName:      i.Repository.GetFullName(),
+			URL:           i.Repository.GetURL(),
+		}
+	}
+	for _, a := range i.Assignees {
+		r.Assignees = append(r.Assignees, User{Login: a.GetLogin()})
+	}
+	return r
+}
 
 // SearchIssues finds issues mentioning @zelvinator in body/title.
 func (c *Client) SearchIssues(org string) ([]SearchResult, error) {
-	query := fmt.Sprintf("@zelvinator+in:title,body+is:issue+org:%s+state:open", org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=50&sort=created&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("@zelvinator+in:title,body+is:issue+org:%s+state:open", org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
-	// Filter out PRs (they shouldn't appear but just in case)
 	var issues []SearchResult
-	for _, item := range resp.Items {
+	for _, item := range results {
 		if item.PullReq == nil {
 			issues = append(issues, item)
 		}
@@ -188,14 +189,13 @@ func (c *Client) SearchIssues(org string) ([]SearchResult, error) {
 
 // SearchIssueComments finds issues mentioning @zelvinator in comments.
 func (c *Client) SearchIssueComments(org string) ([]SearchResult, error) {
-	query := fmt.Sprintf("@zelvinator+in:comments+is:issue+org:%s+state:open", org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=100&sort=created&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("@zelvinator+in:comments+is:issue+org:%s+state:open", org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
 	var issues []SearchResult
-	for _, item := range resp.Items {
+	for _, item := range results {
 		if item.PullReq == nil {
 			issues = append(issues, item)
 		}
@@ -205,14 +205,13 @@ func (c *Client) SearchIssueComments(org string) ([]SearchResult, error) {
 
 // SearchPRs finds PRs mentioning @zelvinator in body/title.
 func (c *Client) SearchPRs(org string) ([]SearchResult, error) {
-	query := fmt.Sprintf("@zelvinator+in:title,body+type:pr+org:%s+state:open", org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=50&sort=created&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("@zelvinator+in:title,body+type:pr+org:%s+state:open", org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
 	var prs []SearchResult
-	for _, item := range resp.Items {
+	for _, item := range results {
 		if item.PullReq != nil {
 			prs = append(prs, item)
 		}
@@ -222,14 +221,13 @@ func (c *Client) SearchPRs(org string) ([]SearchResult, error) {
 
 // SearchPRComments finds PRs mentioning @zelvinator in comments.
 func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
-	query := fmt.Sprintf("@zelvinator+in:comments+type:pr+org:%s+state:open", org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=100&sort=created&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("@zelvinator+in:comments+type:pr+org:%s+state:open", org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
 	var prs []SearchResult
-	for _, item := range resp.Items {
+	for _, item := range results {
 		if item.PullReq != nil {
 			prs = append(prs, item)
 		}
@@ -239,14 +237,13 @@ func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
 
 // SearchAssignedIssues finds open issues assigned to a specific user in an org.
 func (c *Client) SearchAssignedIssues(org, assignee string) ([]SearchResult, error) {
-	query := fmt.Sprintf("assignee:%s+is:issue+state:open+org:%s", assignee, org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=50&sort=updated&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("assignee:%s+is:issue+state:open+org:%s", assignee, org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
 	var issues []SearchResult
-	for _, item := range resp.Items {
+	for _, item := range results {
 		if item.PullReq == nil {
 			issues = append(issues, item)
 		}
@@ -256,26 +253,23 @@ func (c *Client) SearchAssignedIssues(org, assignee string) ([]SearchResult, err
 
 // SearchAuthorPRs finds open PRs by a specific author in an org.
 func (c *Client) SearchAuthorPRs(org, author string) ([]SearchResult, error) {
-	query := fmt.Sprintf("author:%s+is:pr+state:open+org:%s", author, org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=30&sort=updated&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("author:%s+is:pr+state:open+org:%s", author, org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
-	return resp.Items, nil
+	return results, nil
 }
 
 // SearchOpenPRs finds all open PRs in an org, limited to recently updated.
-// Used to discover PRs that mention @zelvinator only in review comments.
 func (c *Client) SearchOpenPRs(org string) ([]SearchResult, error) {
-	query := fmt.Sprintf("is:pr+state:open+org:%s", org)
-	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=30&sort=updated&order=desc", query)
-	var resp SearchResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	q := fmt.Sprintf("is:pr+state:open+org:%s", org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
 	var prs []SearchResult
-	for _, item := range resp.Items {
+	for _, item := range results {
 		if item.PullReq != nil {
 			prs = append(prs, item)
 		}
@@ -287,32 +281,65 @@ func (c *Client) SearchOpenPRs(org string) ([]SearchResult, error) {
 
 // GetIssueBody fetches the body of an issue/PR.
 func (c *Client) GetIssueBody(repo string, number int) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", repo, number)
-	var result struct {
-		Body string `json:"body"`
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return "", fmt.Errorf("invalid repo: %s", repo)
 	}
-	if err := c.GetJSON(url, &result); err != nil {
+	issue, _, err := c.client.Issues.Get(context.Background(), owner, name, number)
+	if err != nil {
 		return "", err
 	}
-	return result.Body, nil
+	return issue.GetBody(), nil
 }
 
 // GetIssueComments fetches comments on an issue/PR.
 func (c *Client) GetIssueComments(repo string, number int) ([]Comment, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments?per_page=20&sort=created", repo, number)
-	var comments []Comment
-	if err := c.GetJSON(url, &comments); err != nil {
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	opts := &gh.IssueListCommentsOptions{
+		Sort:        gh.String("created"),
+		ListOptions: gh.ListOptions{PerPage: 20},
+	}
+	ghComments, _, err := c.client.Issues.ListComments(context.Background(), owner, name, number, opts)
+	if err != nil {
 		return nil, err
+	}
+	var comments []Comment
+	for _, gc := range ghComments {
+		comments = append(comments, Comment{
+			ID:        int(gc.GetID()),
+			User:      User{Login: gc.GetUser().GetLogin()},
+			Body:      gc.GetBody(),
+			CreatedAt: gc.GetCreatedAt().Format("2006-01-02T15:04:05Z"),
+		})
 	}
 	return comments, nil
 }
 
 // GetPRReviewComments fetches review comments on a pull request (inline code discussions).
 func (c *Client) GetPRReviewComments(repo string, number int) ([]ReviewComment, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments?per_page=50&sort=created", repo, number)
-	var comments []ReviewComment
-	if err := c.GetJSON(url, &comments); err != nil {
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	opts := &gh.PullRequestListCommentsOptions{
+		Sort:        "created",
+		ListOptions: gh.ListOptions{PerPage: 50},
+	}
+	ghComments, _, err := c.client.PullRequests.ListComments(context.Background(), owner, name, number, opts)
+	if err != nil {
 		return nil, err
+	}
+	var comments []ReviewComment
+	for _, gc := range ghComments {
+		comments = append(comments, ReviewComment{
+			ID:        int(gc.GetID()),
+			User:      User{Login: gc.GetUser().GetLogin()},
+			Body:      gc.GetBody(),
+			CreatedAt: gc.GetCreatedAt().Format("2006-01-02T15:04:05Z"),
+		})
 	}
 	return comments, nil
 }
@@ -321,35 +348,41 @@ func (c *Client) GetPRReviewComments(repo string, number int) ([]ReviewComment, 
 
 // CreateComment posts a comment on an issue or PR.
 func (c *Client) CreateComment(repo string, number int, body string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments", repo, number)
-	payload := map[string]string{"body": body}
-	return c.postJSON(url, payload, nil)
-}
-
-// ReviewPayload is the payload for creating a PR review.
-type ReviewPayload struct {
-	Body  string `json:"body"`
-	Event string `json:"event"` // "APPROVE", "REQUEST_CHANGES", "COMMENT"
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return fmt.Errorf("invalid repo: %s", repo)
+	}
+	comment := &gh.IssueComment{Body: gh.String(body)}
+	_, _, err := c.client.Issues.CreateComment(context.Background(), owner, name, number, comment)
+	return err
 }
 
 // CreateReview posts a review on a PR.
 func (c *Client) CreateReview(repo string, number int, body string, event string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/reviews", repo, number)
-	payload := ReviewPayload{Body: body, Event: event}
-	return c.postJSON(url, payload, nil)
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return fmt.Errorf("invalid repo: %s", repo)
+	}
+	review := &gh.PullRequestReviewRequest{
+		Body:  gh.String(body),
+		Event: gh.String(event),
+	}
+	_, _, err := c.client.PullRequests.CreateReview(context.Background(), owner, name, number, review)
+	return err
 }
 
 // ReplyToReviewComment posts an inline reply to a specific PR review comment.
-// The reply appears threaded under the original review comment on the PR's Files changed tab.
-type ReplyPayload struct {
-	Body       string `json:"body"`
-	InReplyTo  int    `json:"in_reply_to"`
-}
-
 func (c *Client) ReplyToReviewComment(repo string, number int, reviewCommentID int, body string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments", repo, number)
-	payload := ReplyPayload{Body: body, InReplyTo: reviewCommentID}
-	return c.postJSON(url, payload, nil)
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return fmt.Errorf("invalid repo: %s", repo)
+	}
+	comment := &gh.PullRequestComment{
+		Body:      gh.String(body),
+		InReplyTo: gh.Int64(int64(reviewCommentID)),
+	}
+	_, _, err := c.client.PullRequests.CreateComment(context.Background(), owner, name, number, comment)
+	return err
 }
 
 // ── CI Check Types ──
@@ -368,74 +401,57 @@ type StatusItem struct {
 	State   string `json:"state"`
 }
 
-// CheckRunResponse is the GitHub check runs API response.
-type CheckRunResponse struct {
-	CheckRuns []CheckRun `json:"check_runs"`
-}
-
-// StatusResponse is the GitHub commit status API response.
-type StatusResponse struct {
-	Statuses []StatusItem `json:"statuses"`
-}
-
-// GetCheckRuns fetches all check runs for a commit SHA.
+// GetCheckRuns fetches all check runs for a commit SHA and returns only failed ones.
 func (c *Client) GetCheckRuns(repo, sha string) ([]CheckRun, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s/check-runs", repo, sha)
-	var resp CheckRunResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	opts := &gh.ListCheckRunsOptions{
+		ListOptions: gh.ListOptions{PerPage: 50},
+	}
+	allRuns, _, err := c.client.Checks.ListCheckRunsForRef(context.Background(), owner, name, sha, opts)
+	if err != nil {
 		return nil, err
 	}
 	var failed []CheckRun
-	for _, cr := range resp.CheckRuns {
-		switch cr.Conclusion {
+	for _, cr := range allRuns.CheckRuns {
+		switch cr.GetConclusion() {
 		case "failure", "action_required", "cancelled", "timed_out", "startup_failure":
-			failed = append(failed, cr)
+			failed = append(failed, CheckRun{
+				Name:       cr.GetName(),
+				Conclusion: cr.GetConclusion(),
+				DetailsURL: cr.GetDetailsURL(),
+				URL:        cr.GetURL(),
+			})
 		}
 	}
 	return failed, nil
 }
 
-// GetStatuses fetches commit statuses for a SHA.
+// GetStatuses fetches commit statuses for a SHA and returns only failed/error ones.
 func (c *Client) GetStatuses(repo, sha string) ([]StatusItem, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s/status", repo, sha)
-	var resp StatusResponse
-	if err := c.GetJSON(url, &resp); err != nil {
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	statuses, _, err := c.client.Repositories.GetCombinedStatus(context.Background(), owner, name, sha, nil)
+	if err != nil {
 		return nil, err
 	}
 	var failed []StatusItem
-	for _, s := range resp.Statuses {
-		if s.State == "failure" || s.State == "error" {
-			failed = append(failed, s)
+	for _, s := range statuses.Statuses {
+		if s.GetState() == "failure" || s.GetState() == "error" {
+			failed = append(failed, StatusItem{
+				Context: s.GetContext(),
+				State:   s.GetState(),
+			})
 		}
 	}
 	return failed, nil
 }
 
-// CheckRunLogs fetches the logs for a check run.
-func (c *Client) CheckRunLogs(repo string, checkRunID int) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/check-runs/%d", repo, checkRunID)
-	var cr struct {
-		Output struct {
-			Title   string `json:"title"`
-			Summary string `json:"summary"`
-			Text    string `json:"text"`
-		} `json:"output"`
-	}
-	if err := c.GetJSON(url, &cr); err != nil {
-		return "", err
-	}
-	return cr.Output.Text, nil
-}
-
-// GetPR fetches PR details including head ref and SHA.
-func (c *Client) GetPR(repo string, number int) (*PRInfo, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d", repo, number)
-	var info PRInfo
-	if err := c.GetJSON(url, &info); err != nil {
-		return nil, err
-	}
-	return &info, nil
-}
+// ── PR Info ──
 
 // PRInfo contains PR details.
 type PRInfo struct {
@@ -461,4 +477,35 @@ type PRBase struct {
 		CloneURL string `json:"clone_url"`
 		FullName string `json:"full_name"`
 	} `json:"repo"`
+}
+
+// GetPR fetches PR details including head ref and SHA.
+func (c *Client) GetPR(repo string, number int) (*PRInfo, error) {
+	owner, name := splitRepo(repo)
+	if owner == "" {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	pr, _, err := c.client.PullRequests.Get(context.Background(), owner, name, number)
+	if err != nil {
+		return nil, err
+	}
+	info := &PRInfo{
+		Body: pr.GetBody(),
+		Head: PRHead{
+			Ref: pr.GetHead().GetRef(),
+			SHA: pr.GetHead().GetSHA(),
+		},
+		Base: PRBase{
+			Ref: pr.GetBase().GetRef(),
+		},
+	}
+	if pr.GetHead().GetRepo() != nil {
+		info.Head.Repo.FullName = pr.GetHead().GetRepo().GetFullName()
+		info.Head.Repo.CloneURL = pr.GetHead().GetRepo().GetCloneURL()
+	}
+	if pr.GetBase().GetRepo() != nil {
+		info.Base.Repo.FullName = pr.GetBase().GetRepo().GetFullName()
+		info.Base.Repo.CloneURL = pr.GetBase().GetRepo().GetCloneURL()
+	}
+	return info, nil
 }
