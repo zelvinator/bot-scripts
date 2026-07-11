@@ -363,6 +363,41 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 		}
 	}
 
+	// 7) Issues assigned to zelvinator
+	for _, org := range cfg.TargetOrgs {
+		results, err := client.SearchAssignedIssues(org, "zelvinator")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Search assigned issues (org=%s): %v\n", org, err)
+			continue
+		}
+		for _, r := range results {
+			// Safety: double-check the issue is actually assigned to zelvinator
+			// (search API returns issues where assignee matches — but we verify)
+			assigneeMatch := false
+			if r.Assignees != nil {
+				for _, a := range r.Assignees {
+					if a.Login == "zelvinator" {
+						assigneeMatch = true
+						break
+					}
+				}
+			}
+			if !assigneeMatch {
+				continue
+			}
+			// Skip issues that also contain @zelvinator in body/title —
+			// those will be picked up by step 1 and we don't want duplicates.
+			// But since we use a different key prefix, we let them both through
+			// and dedup later. Actually, better to check: if the body or title
+			// already has @zelvinator, skip this assignment path since the
+			// @mention path handled it already.
+			if strings.Contains(r.Body, "@zelvinator") || strings.Contains(r.Title, "@zelvinator") {
+				continue
+			}
+			items = append(items, makeIssueItem(r, "assignment", ""))
+		}
+	}
+
 	// Deduplicate and claim
 	output := make([]OutputItem, 0)
 	seen := make(map[string]bool)
@@ -370,6 +405,11 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 		key := fmt.Sprintf("%s:%s#%d", item.Type, item.Repo, item.Number)
 		if item.CommentID != 0 {
 			key = fmt.Sprintf("%s:%s#%d:comment:%d", item.Type, item.Repo, item.Number, item.CommentID)
+		}
+		// Assignment-triggered items get a separate key prefix so they don't
+		// conflict with @mention-triggered items for the same issue.
+		if item.TriggerSource == "assignment" {
+			key = "assigned:" + key
 		}
 		if seen[key] {
 			continue

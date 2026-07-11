@@ -105,6 +105,7 @@ type SearchResult struct {
 	PullReq       *PullReqInfo `json:"pull_request,omitempty"`
 	User          User        `json:"user"`
 	Body          string      `json:"body,omitempty"`
+	Assignees     []User      `json:"assignees,omitempty"`
 	HeadRef       string      `json:"headRefName,omitempty"`
 	HeadRefOid    string      `json:"headRefOid,omitempty"`
 	UpdatedAt     string      `json:"updatedAt,omitempty"`
@@ -234,6 +235,23 @@ func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
 		}
 	}
 	return prs, nil
+}
+
+// SearchAssignedIssues finds open issues assigned to a specific user in an org.
+func (c *Client) SearchAssignedIssues(org, assignee string) ([]SearchResult, error) {
+	query := fmt.Sprintf("assignee:%s+is:issue+state:open+org:%s", assignee, org)
+	url := fmt.Sprintf("https://api.github.com/search/issues?q=%s&per_page=50&sort=updated&order=desc", query)
+	var resp SearchResponse
+	if err := c.GetJSON(url, &resp); err != nil {
+		return nil, err
+	}
+	var issues []SearchResult
+	for _, item := range resp.Items {
+		if item.PullReq == nil {
+			issues = append(issues, item)
+		}
+	}
+	return issues, nil
 }
 
 // SearchAuthorPRs finds open PRs by a specific author in an org.

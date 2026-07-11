@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # find-zelvinator-mentions.sh — Find issues/PRs mentioning @zelvinator
-# in body, title, or comments. Deduplicated, atomically claimed.
+# in body, title, or comments, OR assigned to zelvinator.
+# Deduplicated, atomically claimed.
 #
 # Reads config from config.sh (same directory) for whitelist and target orgs.
 # Credentials sourced from ~/.hermes/.env (GITHUB_TOKEN).
@@ -69,7 +70,7 @@ process_search_items() {
     if [ "$source" = "comment" ]; then
       local num repo
       num=$(echo "$item" | jq -r '.number // 0')
-      repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
+      repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)\").r // "")' 2>/dev/null)
       [ -z "$repo" ] && continue
       local human_found=false
       trigger_comment=""
@@ -100,7 +101,7 @@ process_search_items() {
     local num repo title url author body branch type
     [ -z "${trigger_comment:-}" ] && trigger_comment=""
     num=$(echo "$item" | jq -r '.number // 0')
-    repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
+    repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)\").r // "")' 2>/dev/null)
     title=$(echo "$item" | jq -r '.title // ""')
     url=$(echo "$item" | jq -r '.html_url // .url // ""')
     author=$(echo "$item" | jq -r '.user.login // .author.login // ""')
@@ -177,7 +178,7 @@ done
 while IFS= read -r item; do
   [ -z "$item" ] && continue
   num=$(echo "$item" | jq -r '.number // 0')
-  repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
+  repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)\").r // "")' 2>/dev/null)
   [ -z "$repo" ] || [ "$num" = "0" ] && continue
 
   # Fetch review comments for this PR
@@ -254,28 +255,28 @@ for org in "${TARGET_ORGS[@]}"; do
     repo=$(echo "$item" | jq -r '.repository.nameWithOwner')
     sha=$(echo "$item" | jq -r '.headRefOid')
     key="ci:$repo#$num"
-    
+
     # Check attempt limit
     ci_attempts_left "$key" || continue
-    
+
     # Check check runs for failures
     local failed
     failed=$(gh api "/repos/$repo/commits/$sha/check-runs" --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "action_required" or .conclusion == "cancelled" or .conclusion == "timed_out") | {name: .name, conclusion: .conclusion, url: .details_url}]' 2>/dev/null || echo "[]")
     local fail_count
     fail_count=$(echo "$failed" | jq 'length' 2>/dev/null || echo 0)
     [ "$fail_count" -eq 0 ] && continue
-    
+
     # Also check commit statuses
     local status_failed
     status_failed=$(gh api "/repos/$repo/commits/$sha/status" --jq '[.statuses[] | select(.state == "failure" or .state == "error") | {context: .context, state: .state}]' 2>/dev/null || echo "[]")
-    
+
     # Output as a CI failure item
-    repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r // "")' 2>/dev/null)
+    repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)\").r // "")' 2>/dev/null)
     title=$(echo "$item" | jq -r '.title // ""')
     url=$(echo "$item" | jq -r '.url')
     branch=$(echo "$item" | jq -r '.headRefName')
     body=$(gh pr view "$num" --repo "$repo" --json body --jq '.body' 2>/dev/null | head -c 500 || echo "")
-    
+
     local json_result
     json_result=$(jq -n \
       --arg type "pr" \
@@ -291,12 +292,64 @@ for org in "${TARGET_ORGS[@]}"; do
       --argjson status_failed "$status_failed" \
       --arg trigger_comment "" \
       '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, branch: $branch, author: $author, trigger_source: $source, trigger_comment: $trigger_comment, failed_checks: $failed, failed_statuses: $status_failed}')
-    
+
     # Claim in the main tracker
     claim "pr:${repo}#${num}" || continue
     add_result "$json_result"
     ci_mark_attempt "$key"
   done < <(echo "$ZELV_PRS" | jq -c '.[]' 2>/dev/null)
+done
+
+# ── 7) Issues assigned to zelvinator ──
+for org in "${TARGET_ORGS[@]}"; do
+  ASSIGNED=$(gh api "search/issues?q=assignee:zelvinator+is:issue+state:open+org:$org&per_page=50&sort=updated&order=desc" 2>/dev/null || echo '{"items":[]}')
+  ASSIGNED_ITEMS=$(echo "$ASSIGNED" | jq -c '.items' 2>/dev/null || echo "[]")
+  while IFS= read -r item; do
+    [ -z "$item" ] && continue
+
+    # Verify assignment to zelvinator
+    local assignee_match=false
+    assignees=$(echo "$item" | jq -c '.assignees // []' 2>/dev/null)
+    while IFS= read -r a; do
+      [ -z "$a" ] && continue
+      local login
+      login=$(echo "$a" | jq -r '.login' 2>/dev/null)
+      [ "$login" = "zelvinator" ] && assignee_match=true && break
+    done <<< "$(echo "$assignees" | jq -c '.[]' 2>/dev/null)"
+    [ "$assignee_match" = false ] && continue
+
+    # Skip if body/title already contains @zelvinator (handled by step 1)
+    local body title
+    body=$(echo "$item" | jq -r '.body // ""' 2>/dev/null)
+    title=$(echo "$item" | jq -r '.title // ""' 2>/dev/null)
+    echo "$body$title" | grep -qi '@zelvinator' && continue
+
+    # Use a prefixed claim key so assignment items don't clash with @mention items
+    local num repo
+    num=$(echo "$item" | jq -r '.number // 0')
+    repo=$(echo "$item" | jq -r '.repository.nameWithOwner // .repository.full_name // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)\").r // "")' 2>/dev/null)
+    [ -z "$repo" ] || [ "$num" = "0" ] && continue
+
+    claim "assigned:issue:${repo}#${num}" || continue
+
+    local url html_url
+    url=$(echo "$item" | jq -r '.url // ""')
+    html_url=$(echo "$item" | jq -r '.html_url // ""')
+
+    body=$(echo "$body" | head -c 1500)
+    local json_result
+    json_result=$(jq -n \
+      --arg type "issue" \
+      --arg repo "$repo" \
+      --argjson num "$num" \
+      --arg title "$title" \
+      --arg url "$html_url" \
+      --arg body "$body" \
+      --arg source "assignment" \
+      --arg trigger_comment "" \
+      '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, trigger_source: $source, trigger_comment: $trigger_comment}')
+    add_result "$json_result"
+  done <<< "$(echo "$ASSIGNED_ITEMS" | jq -c '.[]' 2>/dev/null)"
 done
 
 cat "$RESULTS_FILE" | jq '.'
