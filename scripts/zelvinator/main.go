@@ -30,6 +30,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  find --reset   Reset the processed-items tracker\n")
 		fmt.Fprintf(os.Stderr, "  comment <repo> <number> <body>\n")
 		fmt.Fprintf(os.Stderr, "  review <repo> <number> <body> [event]\n")
+		fmt.Fprintf(os.Stderr, "  reply-review <repo> <number> <review_comment_id> <body>\n")
 		fmt.Fprintf(os.Stderr, "  ci-fix <repo> <number>\n")
 		os.Exit(1)
 	}
