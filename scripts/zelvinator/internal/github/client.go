@@ -236,27 +236,107 @@ func (c *Client) SearchPRComments() ([]SearchResult, error) {
 }
 
 // SearchAssignedIssues finds open issues assigned to a specific user across all accessible repos.
+// Uses GET /issues?filter=assigned which works for the authenticated user (unlike search API).
 func (c *Client) SearchAssignedIssues(assignee string) ([]SearchResult, error) {
-	q := fmt.Sprintf("assignee:%s+is:issue+state:open", assignee)
-	results, err := c.searchIssues(q)
-	if err != nil {
+	// Fetch issues assigned to the authenticated user via the issues API
+	var raw []struct {
+		Number       int          `json:"number"`
+		Title        string       `json:"title"`
+		HTMLURL      string       `json:"html_url"`
+		Repository   Repository   `json:"repository"`
+		User         User         `json:"user"`
+		Body         string       `json:"body"`
+		PullRequest  interface{}  `json:"pull_request"`
+		Assignees    []User       `json:"assignees"`
+		RepositoryURL string      `json:"repository_url"`
+		URL          string       `json:"url"`
+	}
+	url := "https://api.github.com/issues?filter=assigned&state=open&per_page=100"
+	if err := c.GetJSON(url, &raw); err != nil {
 		return nil, err
 	}
-	var issues []SearchResult
-	for _, item := range results {
-		if item.PullReq == nil {
-			issues = append(issues, item)
+	var results []SearchResult
+	for _, item := range raw {
+		// Only include issues (not PRs)
+		if item.PullRequest != nil {
+			continue
 		}
+		// Verify the issue is actually assigned to the specified user
+		assigneeMatch := false
+		for _, a := range item.Assignees {
+			if a.Login == assignee {
+				assigneeMatch = true
+				break
+			}
+		}
+		if !assigneeMatch {
+			continue
+		}
+		sr := SearchResult{
+			Number:        item.Number,
+			Title:         item.Title,
+			HTMLURL:       item.HTMLURL,
+			Body:          item.Body,
+			User:          item.User,
+			Assignees:     item.Assignees,
+			RepositoryURL: item.RepositoryURL,
+			URL:           item.URL,
+		}
+		if item.Repository.NameWithOwner != "" {
+			sr.Repository = item.Repository
+		} else if item.RepositoryURL != "" {
+			sr.Repository = Repository{
+				FullName: strings.TrimPrefix(item.RepositoryURL, "https://api.github.com/repos/"),
+			}
+		}
+		results = append(results, sr)
 	}
-	return issues, nil
+	return results, nil
 }
 
 // SearchAuthorPRs finds open PRs by a specific author across all accessible repos.
+// Uses GET /issues?filter=created which works for the authenticated user (unlike search API).
 func (c *Client) SearchAuthorPRs(author string) ([]SearchResult, error) {
-	q := fmt.Sprintf("author:%s+is:pr+state:open", author)
-	results, err := c.searchIssues(q)
-	if err != nil {
+	// Fetch issues/PRs created by the authenticated user via the issues API
+	var raw []struct {
+		Number       int          `json:"number"`
+		Title        string       `json:"title"`
+		HTMLURL      string       `json:"html_url"`
+		Repository   Repository   `json:"repository"`
+		User         User         `json:"user"`
+		Body         string       `json:"body"`
+		PullRequest  interface{}  `json:"pull_request"`
+		RepositoryURL string      `json:"repository_url"`
+		URL          string       `json:"url"`
+	}
+	url := "https://api.github.com/issues?filter=created&state=open&per_page=100"
+	if err := c.GetJSON(url, &raw); err != nil {
 		return nil, err
+	}
+	var results []SearchResult
+	for _, item := range raw {
+		// Only include PRs
+		if item.PullRequest == nil {
+			continue
+		}
+		sr := SearchResult{
+			Number:        item.Number,
+			Title:         item.Title,
+			HTMLURL:       item.HTMLURL,
+			Body:          item.Body,
+			User:          item.User,
+			RepositoryURL: item.RepositoryURL,
+			URL:           item.URL,
+			PullReq:       &PullReqInfo{URL: item.URL},
+		}
+		if item.Repository.NameWithOwner != "" {
+			sr.Repository = item.Repository
+		} else if item.RepositoryURL != "" {
+			sr.Repository = Repository{
+				FullName: strings.TrimPrefix(item.RepositoryURL, "https://api.github.com/repos/"),
+			}
+		}
+		results = append(results, sr)
 	}
 	return results, nil
 }
