@@ -2,7 +2,13 @@
 # config.sh — Config for zelvinator bot scripts
 # Source this from scripts that need these values.
 #
-# Edit these lists to control which users and orgs the bot watches.
+# The bot no longer watches specific orgs. Instead, it searches ALL repos
+# the bot token has access to. Invite the zelvinator GitHub user as a
+# collaborator to any repo/org, then interact by:
+#   - Mentioning @zelvinator in an issue, PR, or comment
+#   - Assigning an issue to the zelvinator user
+#
+# Only whitelisted users' @zelvinator mentions trigger bot actions.
 
 # Users whose @zelvinator mentions will trigger bot actions
 WHITELIST_USERS=(
@@ -10,14 +16,6 @@ WHITELIST_USERS=(
   xbedna
   MichalPustka
   mroncka
-)
-
-# GitHub orgs/accounts to search for @zelvinator mentions
-TARGET_ORGS=(
-  zelvinator
-  Hnatekmar
-  hnatekmarorg
-  Algovectra
 )
 
 # Path to Hermes .env file (for GITHUB_TOKEN)

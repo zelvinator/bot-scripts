@@ -14,7 +14,6 @@ import (
 // Config holds the bot's configuration.
 type Config struct {
 	WhitelistUsers []string
-	TargetOrgs     []string
 	HermesEnvPath  string
 	ScriptDir      string
 }
@@ -72,8 +71,6 @@ func (c *Config) parseConfigFile(path string) error {
 		switch currentVar {
 		case "WHITELIST_USERS":
 			c.WhitelistUsers = currentValues
-		case "TARGET_ORGS":
-			c.TargetOrgs = currentValues
 		case "HERMES_ENV":
 			if len(currentValues) > 0 {
 				c.HermesEnvPath = currentValues[0]
@@ -90,13 +87,9 @@ func (c *Config) parseConfigFile(path string) error {
 		}
 
 		// Detect new array assignment: VAR_NAME=(
-		if strings.HasPrefix(line, "WHITELIST_USERS=(") || strings.HasPrefix(line, "TARGET_ORGS=(") {
+		if strings.HasPrefix(line, "WHITELIST_USERS=(") {
 			flush()
-			if strings.HasPrefix(line, "WHITELIST_USERS=(") {
-				currentVar = "WHITELIST_USERS"
-			} else {
-				currentVar = "TARGET_ORGS"
-			}
+			currentVar = "WHITELIST_USERS"
 			// Check if values are on the same line
 			rest := strings.TrimPrefix(line, currentVar+"=(")
 			rest = strings.TrimRight(rest, " ")

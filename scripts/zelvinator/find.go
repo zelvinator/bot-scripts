@@ -72,12 +72,10 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	var items = make([]OutputItem, 0)
 
 	// 1) Issues: @zelvinator in title/body
-	for _, org := range cfg.TargetOrgs {
-		results, err := client.SearchIssues(org)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Search issues (org=%s): %v\n", org, err)
-			continue
-		}
+	results, err := client.SearchIssues()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search issues: %v\n", err)
+	} else {
 		for _, r := range results {
 			// Verify the result actually contains @zelvinator (guard against search API false positives)
 			if !strings.Contains(r.Body, "@zelvinator") && !strings.Contains(r.Title, "@zelvinator") {
@@ -88,13 +86,11 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	}
 
 	// 2) Issues: @zelvinator in comments
-	for _, org := range cfg.TargetOrgs {
-		results, err := client.SearchIssueComments(org)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Search issue comments (org=%s): %v\n", org, err)
-			continue
-		}
-		for _, r := range results {
+	commentResults, err := client.SearchIssueComments()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search issue comments: %v\n", err)
+	} else {
+		for _, r := range commentResults {
 			triggerComment, commentID := findHumanTriggerComment(client, r, cfg.WhitelistUsers)
 			if triggerComment == "" {
 				continue
@@ -106,13 +102,11 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	}
 
 	// 3) PRs: @zelvinator in title/body
-	for _, org := range cfg.TargetOrgs {
-		results, err := client.SearchPRs(org)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Search PRs (org=%s): %v\n", org, err)
-			continue
-		}
-		for _, r := range results {
+	prResults, err := client.SearchPRs()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search PRs: %v\n", err)
+	} else {
+		for _, r := range prResults {
 			// Verify the result actually contains @zelvinator (guard against search API false positives)
 			if !strings.Contains(r.Body, "@zelvinator") && !strings.Contains(r.Title, "@zelvinator") {
 				continue
@@ -122,13 +116,11 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	}
 
 	// 4) PRs: @zelvinator in comments
-	for _, org := range cfg.TargetOrgs {
-		results, err := client.SearchPRComments(org)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Search PR comments (org=%s): %v\n", org, err)
-			continue
-		}
-		for _, r := range results {
+	prCommentResults, err := client.SearchPRComments()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search PR comments: %v\n", err)
+	} else {
+		for _, r := range prCommentResults {
 			triggerComment, commentID := findHumanTriggerComment(client, r, cfg.WhitelistUsers)
 			if triggerComment == "" {
 				continue
@@ -142,14 +134,12 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	// 5) PR review comments: @zelvinator in inline code review discussions
 	reviewPRSet := make(map[string]int)
 
-	for _, org := range cfg.TargetOrgs {
-		openPRs, err := client.SearchOpenPRs(org)
-		if err == nil {
-			for _, r := range openPRs {
-				repo := r.RepoName()
-				if repo != "" {
-					reviewPRSet[fmt.Sprintf("%s#%d", repo, r.Number)] = r.Number
-				}
+	openPRs, err := client.SearchOpenPRs()
+	if err == nil {
+		for _, r := range openPRs {
+			repo := r.RepoName()
+			if repo != "" {
+				reviewPRSet[fmt.Sprintf("%s#%d", repo, r.Number)] = r.Number
 			}
 		}
 	}
@@ -226,13 +216,11 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	}
 
 	// 6) CI failures: zelvinator's PRs with failing checks
-	for _, org := range cfg.TargetOrgs {
-		results, err := client.SearchAuthorPRs(org, "zelvinator")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Search zelvinator PRs (org=%s): %v\n", org, err)
-			continue
-		}
-		for _, r := range results {
+	ciResults, err := client.SearchAuthorPRs("zelvinator")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search zelvinator PRs: %v\n", err)
+	} else {
+		for _, r := range ciResults {
 			repo := r.RepoName()
 			if repo == "" {
 				continue
@@ -290,13 +278,11 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 	}
 
 	// 7) Issues assigned to zelvinator
-	for _, org := range cfg.TargetOrgs {
-		results, err := client.SearchAssignedIssues(org, "zelvinator")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Search assigned issues (org=%s): %v\n", org, err)
-			continue
-		}
-		for _, r := range results {
+	assignedResults, err := client.SearchAssignedIssues("zelvinator")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search assigned issues: %v\n", err)
+	} else {
+		for _, r := range assignedResults {
 			assigneeMatch := false
 			if r.Assignees != nil {
 				for _, a := range r.Assignees {

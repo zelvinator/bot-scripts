@@ -3,7 +3,7 @@
 # in body, title, or comments, OR assigned to zelvinator.
 # Deduplicated, atomically claimed.
 #
-# Reads config from config.sh (same directory) for whitelist and target orgs.
+# Reads config from config.sh (same directory) for whitelist users and env path.
 # Credentials sourced from ~/.hermes/.env (GITHUB_TOKEN).
 #
 # Usage: ./find-zelvinator-mentions.sh [--reset]
@@ -141,13 +141,9 @@ BODY_ISSUES=$(gh search issues "@zelvinator" --state open \
 BODY_ISSUES=$(echo "$BODY_ISSUES" | jq '[.[] | select(.isPullRequest == false)]' 2>/dev/null || echo "[]")
 process_search_items "$BODY_ISSUES" "body"
 
-# ── 2) Issues: @zelvinator in comments (per-org) ──
-COMMENT_ISSUES='[]'
-for org in "${TARGET_ORGS[@]}"; do
-  ORG_RESULT=$(gh api "search/issues?q=@zelvinator+in:comments+is:issue+org:$org+state:open&per_page=100&sort=created&order=desc" 2>/dev/null || echo '{"items":[]}')
-  ORG_ITEMS=$(echo "$ORG_RESULT" | jq -c '.items' 2>/dev/null || echo "[]")
-  COMMENT_ISSUES=$(echo "$COMMENT_ISSUES" "$ORG_ITEMS" | jq -s 'add' 2>/dev/null || echo "[]")
-done
+# ── 2) Issues: @zelvinator in comments ──
+COMMENT_ISSUES=$(gh api "search/issues?q=@zelvinator+in:comments+is:issue+state:open&per_page=100&sort=created&order=desc" 2>/dev/null || echo '{"items":[]}')
+COMMENT_ISSUES=$(echo "$COMMENT_ISSUES" | jq -c '.items' 2>/dev/null || echo "[]")
 process_search_items "$COMMENT_ISSUES" "comment"
 
 # ── 3) PRs: @zelvinator in title/body ──
@@ -156,23 +152,15 @@ BODY_PRS=$(gh search prs "@zelvinator" --state open \
 BODY_PRS=$(echo "$BODY_PRS" | jq '[.[] | . + {pull_request: true}]' 2>/dev/null || echo "[]")
 process_search_items "$BODY_PRS" "body"
 
-# ── 4) PRs: @zelvinator in comments (per-org) ──
-COMMENT_PRS='[]'
-for org in "${TARGET_ORGS[@]}"; do
-  ORG_RESULT=$(gh api "search/issues?q=@zelvinator+in:comments+type:pr+org:$org+state:open&per_page=100&sort=created&order=desc" 2>/dev/null || echo '{"items":[]}')
-  ORG_ITEMS=$(echo "$ORG_RESULT" | jq -c '.items' 2>/dev/null || echo "[]")
-  COMMENT_PRS=$(echo "$COMMENT_PRS" "$ORG_ITEMS" | jq -s 'add' 2>/dev/null || echo "[]")
-done
+# ── 4) PRs: @zelvinator in comments ──
+COMMENT_PRS=$(gh api "search/issues?q=@zelvinator+in:comments+type:pr+state:open&per_page=100&sort=created&order=desc" 2>/dev/null || echo '{"items":[]}')
+COMMENT_PRS=$(echo "$COMMENT_PRS" | jq -c '.items' 2>/dev/null || echo "[]")
 process_search_items "$COMMENT_PRS" "comment"
 
 # ── 5) PR review comments: @zelvinator in inline code review discussions ──
 # GitHub's in:comments search does NOT cover PR review comments (inline code reviews).
 # We need to fetch review comments directly for each open PR.
-REVIEW_PRS='[]'
-for org in "${TARGET_ORGS[@]}"; do
-  ORG_PRS=$(gh search prs "state:open org:$org" --json number,title,url,repository,author --limit 30 2>/dev/null || echo '[]')
-  REVIEW_PRS=$(echo "$REVIEW_PRS" "$ORG_PRS" | jq -s 'add' 2>/dev/null || echo '[]')
-done
+REVIEW_PRS=$(gh search prs "state:open" --json number,title,url,repository,author --limit 30 2>/dev/null || echo '[]')
 
 # Process each PR for review comments
 while IFS= read -r item; do
@@ -245,10 +233,9 @@ ci_mark_attempt() {
   echo "$key:$(date +%s)" >> "$CI_ATTEMPTS"
 }
 
-for org in "${TARGET_ORGS[@]}"; do
-  ZELV_PRS=$(gh search prs "author:zelvinator is:pr state:open org:$org" \
-    --json number,title,url,repository,headRefName,headRefOid,updatedAt --limit 30 2>/dev/null || echo "[]")
-  while IFS= read -r item; do
+ZELV_PRS=$(gh search prs "author:zelvinator is:pr state:open" \
+  --json number,title,url,repository,headRefName,headRefOid,updatedAt --limit 30 2>/dev/null || echo "[]")
+while IFS= read -r item; do
     [ -z "$item" ] && continue
     local num repo sha key
     num=$(echo "$item" | jq -r '.number')
@@ -298,13 +285,11 @@ for org in "${TARGET_ORGS[@]}"; do
     add_result "$json_result"
     ci_mark_attempt "$key"
   done < <(echo "$ZELV_PRS" | jq -c '.[]' 2>/dev/null)
-done
 
 # ── 7) Issues assigned to zelvinator ──
-for org in "${TARGET_ORGS[@]}"; do
-  ASSIGNED=$(gh api "search/issues?q=assignee:zelvinator+is:issue+state:open+org:$org&per_page=50&sort=updated&order=desc" 2>/dev/null || echo '{"items":[]}')
-  ASSIGNED_ITEMS=$(echo "$ASSIGNED" | jq -c '.items' 2>/dev/null || echo "[]")
-  while IFS= read -r item; do
+ASSIGNED=$(gh api "search/issues?q=assignee:zelvinator+is:issue+state:open&per_page=50&sort=updated&order=desc" 2>/dev/null || echo '{"items":[]}')
+ASSIGNED_ITEMS=$(echo "$ASSIGNED" | jq -c '.items' 2>/dev/null || echo "[]")
+while IFS= read -r item; do
     [ -z "$item" ] && continue
 
     # Verify assignment to zelvinator
@@ -350,6 +335,5 @@ for org in "${TARGET_ORGS[@]}"; do
       '{type: $type, repo: $repo, number: $num, title: $title, url: $url, body_preview: $body, trigger_source: $source, trigger_comment: $trigger_comment}')
     add_result "$json_result"
   done <<< "$(echo "$ASSIGNED_ITEMS" | jq -c '.[]' 2>/dev/null)"
-done
 
 cat "$RESULTS_FILE" | jq '.'

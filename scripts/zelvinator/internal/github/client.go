@@ -172,8 +172,8 @@ func convertIssue(i *gh.Issue) SearchResult {
 }
 
 // SearchIssues finds issues mentioning @zelvinator in body/title.
-func (c *Client) SearchIssues(org string) ([]SearchResult, error) {
-	q := fmt.Sprintf("@zelvinator+in:title,body+is:issue+org:%s+state:open", org)
+func (c *Client) SearchIssues() ([]SearchResult, error) {
+	q := "@zelvinator+in:title,body+is:issue+state:open"
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -188,8 +188,8 @@ func (c *Client) SearchIssues(org string) ([]SearchResult, error) {
 }
 
 // SearchIssueComments finds issues mentioning @zelvinator in comments.
-func (c *Client) SearchIssueComments(org string) ([]SearchResult, error) {
-	q := fmt.Sprintf("@zelvinator+in:comments+is:issue+org:%s+state:open", org)
+func (c *Client) SearchIssueComments() ([]SearchResult, error) {
+	q := "@zelvinator+in:comments+is:issue+state:open"
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -204,8 +204,8 @@ func (c *Client) SearchIssueComments(org string) ([]SearchResult, error) {
 }
 
 // SearchPRs finds PRs mentioning @zelvinator in body/title.
-func (c *Client) SearchPRs(org string) ([]SearchResult, error) {
-	q := fmt.Sprintf("@zelvinator+in:title,body+type:pr+org:%s+state:open", org)
+func (c *Client) SearchPRs() ([]SearchResult, error) {
+	q := "@zelvinator+in:title,body+type:pr+state:open"
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -220,8 +220,8 @@ func (c *Client) SearchPRs(org string) ([]SearchResult, error) {
 }
 
 // SearchPRComments finds PRs mentioning @zelvinator in comments.
-func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
-	q := fmt.Sprintf("@zelvinator+in:comments+type:pr+org:%s+state:open", org)
+func (c *Client) SearchPRComments() ([]SearchResult, error) {
+	q := "@zelvinator+in:comments+type:pr+state:open"
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -235,9 +235,9 @@ func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
 	return prs, nil
 }
 
-// SearchAssignedIssues finds open issues assigned to a specific user in an org.
-func (c *Client) SearchAssignedIssues(org, assignee string) ([]SearchResult, error) {
-	q := fmt.Sprintf("assignee:%s+is:issue+state:open+org:%s", assignee, org)
+// SearchAssignedIssues finds open issues assigned to a specific user across all accessible repos.
+func (c *Client) SearchAssignedIssues(assignee string) ([]SearchResult, error) {
+	q := fmt.Sprintf("assignee:%s+is:issue+state:open", assignee)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -251,9 +251,9 @@ func (c *Client) SearchAssignedIssues(org, assignee string) ([]SearchResult, err
 	return issues, nil
 }
 
-// SearchAuthorPRs finds open PRs by a specific author in an org.
-func (c *Client) SearchAuthorPRs(org, author string) ([]SearchResult, error) {
-	q := fmt.Sprintf("author:%s+is:pr+state:open+org:%s", author, org)
+// SearchAuthorPRs finds open PRs by a specific author across all accessible repos.
+func (c *Client) SearchAuthorPRs(author string) ([]SearchResult, error) {
+	q := fmt.Sprintf("author:%s+is:pr+state:open", author)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -261,9 +261,9 @@ func (c *Client) SearchAuthorPRs(org, author string) ([]SearchResult, error) {
 	return results, nil
 }
 
-// SearchOpenPRs finds all open PRs in an org, limited to recently updated.
-func (c *Client) SearchOpenPRs(org string) ([]SearchResult, error) {
-	q := fmt.Sprintf("is:pr+state:open+org:%s", org)
+// SearchOpenPRs finds all open PRs across all accessible repos, limited to recently updated.
+func (c *Client) SearchOpenPRs() ([]SearchResult, error) {
+	q := "is:pr+state:open"
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
