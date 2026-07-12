@@ -355,7 +355,7 @@ func (c *Client) SearchAuthorPRs(author string) ([]SearchResult, error) {
 // SearchOpenPRs finds open PRs mentioning @zelvinator, limited to recently updated.
 // Used to discover PRs that mention @zelvinator only in review comments.
 func (c *Client) SearchOpenPRs() ([]SearchResult, error) {
-	q := "mentions:zelvinator type:pr state:open"
+	q := `"@zelvinator" type:pr state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
