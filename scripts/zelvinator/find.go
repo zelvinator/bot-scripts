@@ -319,12 +319,13 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			continue
 		}
 		seen[key] = true
+		// Sanitize BEFORE claiming — if sanitization panics, the item
+		// remains unclaimed and can be retried on the next cycle.
+		applyContentSanitization(&item)
 		claimed, err := t.Claim(key)
 		if err != nil || !claimed {
 			continue
 		}
-		// Sanitize user-controlled fields before passing to the LLM
-		applyContentSanitization(&item)
 		output = append(output, item)
 	}
 
@@ -443,8 +444,8 @@ func sanitizeUserContent(s string) (string, bool) {
 // - Encoded/escaped payloads (hex, Unicode escapes)
 // These are structural markers, not keyword-based, so they're harder to bypass.
 func hasStructuralAnomaly(s string) bool {
-	// Zero-width characters (invisible Unicode)
-	zeroWidth := regexp.MustCompile(`[\u200B-\u200D\uFEFF\u2060\u2061-\u2064]`)
+	// Zero-width characters (invisible Unicode) using Go regexp \x{...} syntax
+	zeroWidth := regexp.MustCompile(`[\x{200B}-\x{200D}\x{FEFF}\x{2060}\x{2061}-\x{2064}]`)
 	if zeroWidth.MatchString(s) {
 		return true
 	}

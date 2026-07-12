@@ -243,8 +243,9 @@ touch "$CI_ATTEMPTS"
 ci_attempts_left() {
   local key="$1"
   local count
-  count=$(grep -c "^$key:" "$CI_ATTEMPTS" 2>/dev/null || echo 0)
-  [ "$count" -lt 3 ]
+  count=$(grep -c "^$key:" "$CI_ATTEMPTS" 2>/dev/null || true)
+  count="${count:-0}"
+  [ "$count" -lt 3 ] 2>/dev/null
 }
 
 ci_mark_attempt() {
@@ -306,7 +307,7 @@ while IFS= read -r item; do
     [ -z "$item" ] && continue
 
     # Verify assignment to zelvinator
-    local assignee_match=false
+    assignee_match=false
     assignees=$(echo "$item" | jq -c '.assignees // []' 2>/dev/null)
     while IFS= read -r a; do
       [ -z "$a" ] && continue
@@ -316,22 +317,18 @@ while IFS= read -r item; do
     [ "$assignee_match" = false ] && continue
 
     # Skip if body/title already contains @zelvinator (handled by step 1)
-    local body title
     body=$(echo "$item" | jq -r '.body // ""' 2>/dev/null) || continue
     title=$(echo "$item" | jq -r '.title // ""' 2>/dev/null) || continue
     echo "$body$title" | grep -qi '@zelvinator' && continue
 
-    local num repo
     num=$(echo "$item" | jq -r '.number // 0' 2>/dev/null) || continue
     repo=$(echo "$item" | jq -r '.repository.nameWithOwner // (.repository_url | capture("https://api.github.com/repos/(?<r>.+)").r) // ""' 2>/dev/null) || continue
     [ -z "$repo" ] || [ "$num" = "0" ] && continue
 
     claim "assigned:issue:${repo}#${num}" || continue
 
-    local html_url
     html_url=$(echo "$item" | jq -r '.html_url // ""' 2>/dev/null) || continue
     body=$(echo "$body" | head -c 1500)
-    local json_result
     json_result=$(jq -n \
       --arg type "issue" \
       --arg repo "$repo" \

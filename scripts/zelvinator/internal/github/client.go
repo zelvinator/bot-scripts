@@ -4,7 +4,10 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -59,6 +62,7 @@ type SearchResult struct {
 	User          User         `json:"user"`
 	Body          string       `json:"body,omitempty"`
 	Assignees     []User       `json:"assignees,omitempty"`
+	Comments      int          `json:"comments,omitempty"`
 	HeadRef       string       `json:"headRefName,omitempty"`
 	HeadRefOid    string       `json:"headRefOid,omitempty"`
 	UpdatedAt     string       `json:"updatedAt,omitempty"`
@@ -152,6 +156,7 @@ func convertIssue(i *gh.Issue) SearchResult {
 		HTMLURL:       i.GetHTMLURL(),
 		RepositoryURL: i.GetRepositoryURL(),
 		Body:          i.GetBody(),
+		Comments:      i.GetComments(),
 		User:          User{Login: i.GetUser().GetLogin()},
 		HeadRef:       i.GetPullRequestLinks().GetURL(),
 	}
@@ -173,14 +178,15 @@ func convertIssue(i *gh.Issue) SearchResult {
 
 // SearchIssues finds issues mentioning @zelvinator in body/title.
 func (c *Client) SearchIssues() ([]SearchResult, error) {
-	q := "@zelvinator+in:title,body+is:issue+state:open"
+	q := `"@zelvinator" is:issue state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
+	// Filter to only issues where @zelvinator is in body/title (not just comments)
 	var issues []SearchResult
 	for _, item := range results {
-		if item.PullReq == nil {
+		if item.PullReq == nil && (strings.Contains(item.Body, "@zelvinator") || strings.Contains(item.Title, "@zelvinator")) {
 			issues = append(issues, item)
 		}
 	}
@@ -189,14 +195,16 @@ func (c *Client) SearchIssues() ([]SearchResult, error) {
 
 // SearchIssueComments finds issues mentioning @zelvinator in comments.
 func (c *Client) SearchIssueComments() ([]SearchResult, error) {
-	q := "@zelvinator+in:comments+is:issue+state:open"
+	q := `"@zelvinator" is:issue state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
+	// Only include issues where @zelvinator is NOT in body/title
+	// (those are covered by SearchIssues) AND that have comments
 	var issues []SearchResult
 	for _, item := range results {
-		if item.PullReq == nil {
+		if item.PullReq == nil && item.Comments > 0 && !strings.Contains(item.Body, "@zelvinator") && !strings.Contains(item.Title, "@zelvinator") {
 			issues = append(issues, item)
 		}
 	}
@@ -205,14 +213,15 @@ func (c *Client) SearchIssueComments() ([]SearchResult, error) {
 
 // SearchPRs finds PRs mentioning @zelvinator in body/title.
 func (c *Client) SearchPRs() ([]SearchResult, error) {
-	q := "@zelvinator+in:title,body+type:pr+state:open"
+	q := `"@zelvinator" type:pr state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
+	// Filter to only PRs where @zelvinator is in body/title
 	var prs []SearchResult
 	for _, item := range results {
-		if item.PullReq != nil {
+		if item.PullReq != nil && (strings.Contains(item.Body, "@zelvinator") || strings.Contains(item.Title, "@zelvinator")) {
 			prs = append(prs, item)
 		}
 	}
@@ -221,14 +230,16 @@ func (c *Client) SearchPRs() ([]SearchResult, error) {
 
 // SearchPRComments finds PRs mentioning @zelvinator in comments.
 func (c *Client) SearchPRComments() ([]SearchResult, error) {
-	q := "@zelvinator+in:comments+type:pr+state:open"
+	q := `"@zelvinator" type:pr state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
+	// Only include PRs where @zelvinator is NOT in body/title
+	// (those are covered by SearchPRs) AND that have comments
 	var prs []SearchResult
 	for _, item := range results {
-		if item.PullReq != nil {
+		if item.PullReq != nil && item.Comments > 0 && !strings.Contains(item.Body, "@zelvinator") && !strings.Contains(item.Title, "@zelvinator") {
 			prs = append(prs, item)
 		}
 	}
@@ -341,9 +352,10 @@ func (c *Client) SearchAuthorPRs(author string) ([]SearchResult, error) {
 	return results, nil
 }
 
-// SearchOpenPRs finds all open PRs across all accessible repos, limited to recently updated.
+// SearchOpenPRs finds open PRs mentioning @zelvinator, limited to recently updated.
+// Used to discover PRs that mention @zelvinator only in review comments.
 func (c *Client) SearchOpenPRs() ([]SearchResult, error) {
-	q := "is:pr+state:open"
+	q := "mentions:zelvinator type:pr state:open"
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -457,12 +469,35 @@ func (c *Client) ReplyToReviewComment(repo string, number int, reviewCommentID i
 	if owner == "" {
 		return fmt.Errorf("invalid repo: %s", repo)
 	}
-	comment := &gh.PullRequestComment{
-		Body:      gh.String(body),
-		InReplyTo: gh.Int64(int64(reviewCommentID)),
+	// go-github's PullRequestComment uses in_reply_to_id which is incorrect.
+	// The API expects in_reply_to. Use raw HTTP to control the payload exactly.
+	payload := map[string]interface{}{
+		"body":       body,
+		"in_reply_to": reviewCommentID,
 	}
-	_, _, err := c.client.PullRequests.CreateComment(context.Background(), owner, name, number, comment)
-	return err
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/comments", owner, name, number)
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBody)))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "zelvinator-bot/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("POST %s: HTTP %d: %s", url, resp.StatusCode, string(respBody))
+	}
+	return nil
 }
 
 // ── CI Check Types ──
