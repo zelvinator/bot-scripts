@@ -178,7 +178,7 @@ func convertIssue(i *gh.Issue) SearchResult {
 
 // SearchIssues finds issues mentioning @zelvinator in body/title.
 func (c *Client) SearchIssues() ([]SearchResult, error) {
-	q := `"@zelvinator" is:issue state:open`
+	q := `mentions:zelvinator is:issue state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -195,7 +195,7 @@ func (c *Client) SearchIssues() ([]SearchResult, error) {
 
 // SearchIssueComments finds issues mentioning @zelvinator in comments.
 func (c *Client) SearchIssueComments() ([]SearchResult, error) {
-	q := `"@zelvinator" is:issue state:open`
+	q := `mentions:zelvinator is:issue state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -213,7 +213,7 @@ func (c *Client) SearchIssueComments() ([]SearchResult, error) {
 
 // SearchPRs finds PRs mentioning @zelvinator in body/title.
 func (c *Client) SearchPRs() ([]SearchResult, error) {
-	q := `"@zelvinator" type:pr state:open`
+	q := `mentions:zelvinator type:pr state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -230,7 +230,7 @@ func (c *Client) SearchPRs() ([]SearchResult, error) {
 
 // SearchPRComments finds PRs mentioning @zelvinator in comments.
 func (c *Client) SearchPRComments() ([]SearchResult, error) {
-	q := `"@zelvinator" type:pr state:open`
+	q := `mentions:zelvinator type:pr state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -355,7 +355,7 @@ func (c *Client) SearchAuthorPRs(author string) ([]SearchResult, error) {
 // SearchOpenPRs finds open PRs mentioning @zelvinator, limited to recently updated.
 // Used to discover PRs that mention @zelvinator only in review comments.
 func (c *Client) SearchOpenPRs() ([]SearchResult, error) {
-	q := `"@zelvinator" type:pr state:open`
+	q := `mentions:zelvinator type:pr state:open`
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
