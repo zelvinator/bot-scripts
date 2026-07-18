@@ -129,7 +129,7 @@ cronjob action=create \
   prompt="..."
 ```
 
-See the [zelvinator-bot skill](https://github.com/zelvinator/bot-scripts) for
+See [references/cron-prompt.md](references/cron-prompt.md) for
 the full cron prompt text (including injection defense guardrails).
 
 The cron job must run as the user who has:
