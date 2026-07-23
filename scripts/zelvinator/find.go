@@ -195,8 +195,8 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 		}
 
 		body := prInfo.Body
-		if len(body) > 1500 {
-			body = body[:1500]
+		if len(body) > 5000 {
+			body = body[:5000]
 		}
 
 		htmlURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, num)
@@ -256,8 +256,8 @@ func runFind(client *github.Client, cfg *config.Config, args []string) {
 			}
 
 			body, _ := client.GetIssueBody(repo, r.Number)
-			if len(body) > 1500 {
-				body = body[:1500]
+			if len(body) > 5000 {
+				body = body[:5000]
 			}
 
 			htmlURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, r.Number)
@@ -340,8 +340,8 @@ func makeIssueItem(r github.SearchResult, source, triggerComment string) OutputI
 		htmlURL = fmt.Sprintf("https://github.com/%s/issues/%d", repo, r.Number)
 	}
 	body := r.Body
-	if len(body) > 1500 {
-		body = body[:1500]
+	if len(body) > 5000 {
+		body = body[:5000]
 	}
 	return OutputItem{
 		Type:           "issue",
@@ -373,8 +373,8 @@ func makePRItem(r github.SearchResult, client *github.Client, source, triggerCom
 	if body == "" {
 		body = r.Body
 	}
-	if len(body) > 1500 {
-		body = body[:1500]
+	if len(body) > 5000 {
+		body = body[:5000]
 	}
 
 	return OutputItem{
