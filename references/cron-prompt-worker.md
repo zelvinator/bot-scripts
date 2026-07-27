@@ -175,19 +175,20 @@ You have four phases each run. Execute them in order.
 
 4. Classify the review:
 
-   A) CLEAN — Approve:
+   A) CLEAN — Approve (ONLY for items you handled directly without a GLM plan):
       → zelvinator comment <repo> <number> "🐢 Looks good! Implementation matches the plan."
       → zelvinator state <id> done
 
-   B) SIMPLE FIXES — Fix yourself:
+   B) SIMPLE FIXES — Fix yourself (ONLY for items you handled directly without a GLM plan):
       → Fix the issues (missing test, style, typo, etc.)
       → Push fix
       → zelvinator state <id> fix_needed --feedback="<what was wrong and how you fixed it>"
       (This puts it back through implementation to re-review)
 
-   C) COMPLEX — Escalate to GLM:
+   C) PLANNED ITEMS — Always escalate to GLM (if the item has a plan from GLM):
       → zelvinator state <id> needs_review
-      → GLM will do an architectural review
+      → GLM will review the implementation against the plan
+      → NEVER self-approve items that GLM planned. GLM must review its own plans' implementations.
 
 --- PHASE 4: Stale Reset ---
 
