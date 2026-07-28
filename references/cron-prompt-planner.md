@@ -126,24 +126,27 @@ You have three phases each run. Execute them in order.
 --- PHASE 2: Complex Review (items Qwen escalated) ---
 
 1. Run: zelvinator queue --state=needs_review
-   These are implementations Qwen reviewed but couldn't judge — architectural
-   concerns, cross-module changes, or correctness uncertainty.
+   Qwen has already done a fast first-pass review and posted it as a comment.
+   Your job is to AMEND that review with architectural analysis, not start fresh.
 
 2. For each item:
    a. Get the PR URL from the item (pr_url field in the queue output).
-   b. Fetch the diff:
+   b. Fetch the PR comments to find Qwen's "Quick first-pass review" comment.
+      Read it to see what Qwen already found.
+   c. Fetch the diff:
       cd <repo_clone> && git diff origin/main...HEAD
       Or: gh pr diff <number> --repo <repo>
-   c. If there was a plan, get it: zelvinator plan <id>
-   d. Review architecturally:
+   d. If there was a plan, get it: zelvinator plan <id>
+   e. Review architecturally — focus on what Qwen CAN'T catch:
       - Does the implementation match the plan's intent?
       - Are interfaces correct? Are edge cases handled?
       - Are there cross-module side effects?
       - Is the code maintainable?
-   e. Decision:
+      - Are there design issues Qwen's file-level review would miss?
+   f. Decision:
 
       APPROVED:
-        → zelvinator comment <repo> <number> "🐢 Reviewed and approved. The implementation is architecturally sound."
+        → zelvinator comment <repo> <number> "🐢 Reviewed and approved. The implementation is architecturally sound.\n\nBuilding on the first-pass review:\n<confirm or amend Qwen's findings>\n<add architectural notes Qwen missed>"
         → zelvinator state <id> done
 
       FIXES NEEDED:

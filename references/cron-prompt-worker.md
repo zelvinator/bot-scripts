@@ -105,9 +105,12 @@ You have four phases each run. Execute them in order.
         → zelvinator state <id> done
       - Comment/review replies that request a CODE REVIEW of a PR
         (trigger_comment contains "review", "code review", "review this")
-        → Do NOT review yourself
+        → Do a FAST first-pass review: clone, read diff, check for obvious
+          bugs, missing tests, style issues
+        → Post your findings as a comment:
+          zelvinator comment <repo> <number> "🐢 Quick first-pass review:\n\n<your findings>"
         → zelvinator state <id> needs_review
-        → GLM will do the architectural review
+        → GLM will amend your review with architectural analysis
       - Simple fixes: ≤2 files, follows existing code patterns, no new interfaces
         → Clone repo, implement, commit, push, open PR
         → zelvinator state <id> implementing
@@ -191,10 +194,14 @@ You have four phases each run. Execute them in order.
       → zelvinator state <id> fix_needed --feedback="<what was wrong and how you fixed it>"
       (This puts it back through implementation to re-review)
 
-   C) PLANNED ITEMS — Always escalate to GLM (if the item has a plan from GLM):
+   C) PLANNED ITEMS — Do fast review, then escalate to GLM (if the item has a plan from GLM):
+      → Do a FAST first-pass review: read diff, check for obvious bugs,
+        missing tests, style issues
+      → Post your findings as a comment:
+        zelvinator comment <repo> <number> "🐢 Quick first-pass review:\n\n<your findings>"
       → zelvinator state <id> needs_review
-      → GLM will review the implementation against the plan
-      → NEVER self-approve items that GLM planned. GLM must review its own plans' implementations.
+      → GLM will amend your review with architectural analysis
+      → NEVER self-approve items that GLM planned.
 
 --- PHASE 4: Stale Reset ---
 
