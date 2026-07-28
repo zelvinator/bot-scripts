@@ -144,12 +144,13 @@ You have four phases each run. Execute them in order.
    b. If no plan: clone repo, analyze the issue, implement directly
    c. Run tests if present
    d. Commit, push, open PR
-   e. zelvinator state <id> review_pending --pr-url="<pr_url>"
+   e. Comment on the issue with PR link + summary:
+      zelvinator comment <repo> <number> "🐢 Your order has been shelled and delivered. PR is ready!\n\n<PR link>\n\n<summary>"
+   f. zelvinator state <id> review_pending --pr-url="<pr_url>"
    (GLM will review)
 
    ── /quick-implement ──
    Same as /implement but:
-   e. zelvinator comment <repo> <number> "🐢 Implemented! PR is ready."
    f. zelvinator state <id> done
 
    ── /status ──
@@ -171,8 +172,10 @@ You have four phases each run. Execute them in order.
    ── Body/assignment triggers (no command, trigger_source is body or assignment) ──
    These are issues/PRs where @zelvinator is in the body (not a comment).
    a. Read the issue body
-   b. If simple (≤2 files, follows existing patterns):
+   b. If simple (2 or fewer files, follows existing patterns):
       → Implement directly → push → open PR
+      → Comment on the issue with PR link + summary:
+        zelvinator comment <repo> <number> "🐢 Your order has been shelled and delivered. PR is ready!\n\n<PR link>\n\n<summary of changes>"
       → zelvinator state <id> review_pending --pr-url="<pr_url>"
    c. If complex (3+ files, new abstractions, unclear scope):
       → zelvinator state <id> needs_planning
@@ -201,7 +204,9 @@ You have four phases each run. Execute them in order.
    e. Implement the plan FILE BY FILE, exactly as specified
    f. Run tests/build if present
    g. Commit, push, open PR
-   h. zelvinator state <id> review_pending --pr-url="<pr_url>"
+   h. Comment on the issue with PR link + summary:
+      zelvinator comment <repo> <number> "🐢 Your order has been shelled and delivered. PR is ready!\n\n<PR link>\n\n<summary>"
+   i. zelvinator state <id> review_pending --pr-url="<pr_url>"
 
 4. For each fix_needed item:
    a. Read plan and review_feedback
