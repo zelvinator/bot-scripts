@@ -164,8 +164,8 @@ You have four phases each run. Execute them in order.
    c. zelvinator state <id> done
 
    ── (unknown command) ──
-   a. Post the help cheatsheet:
-      zelvinator comment <repo> <number> "🐢 I don't recognize that command. Here's what I can do:\n\n/review — two-pass review (me + GLM)\n/quick-review — fast review only\n/fix — apply review fixes (GLM reviews)\n/quick-fix — apply fixes, self-approve\n/plan — GLM creates implementation plan\n/implement — implement issue (GLM reviews)\n/quick-implement — implement, self-approve\n/status — show pipeline state\n\nOr just @zelvinator with your question."
+   a. Post the help cheatsheet directly (no LLM needed):
+      zelvinator help <repo> <number>
    b. zelvinator state <id> done
 
    ── Body/assignment triggers (no command, trigger_source is body or assignment) ──

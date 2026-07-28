@@ -44,6 +44,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  stats          Show item counts per state\n")
 		fmt.Fprintf(os.Stderr, "  reset          Reset state database (--confirm)\n")
 		fmt.Fprintf(os.Stderr, "  comment <repo> <number> <body>\n")
+		fmt.Fprintf(os.Stderr, "  help <repo> <number>\n")
 		fmt.Fprintf(os.Stderr, "  review <repo> <number> <body> [event]\n")
 		fmt.Fprintf(os.Stderr, "  reply-review <repo> <number> <review_comment_id> <body>\n")
 		fmt.Fprintf(os.Stderr, "  ci-fix <repo> <number>\n")
@@ -131,6 +132,8 @@ func main() {
 	// GitHub action commands — no DB needed
 	case "comment":
 		runComment(client, os.Args[2:])
+	case "help":
+		runHelp(client, os.Args[2:])
 	case "review":
 		runReview(client, os.Args[2:])
 	case "reply-review":
