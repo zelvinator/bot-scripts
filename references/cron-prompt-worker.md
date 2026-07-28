@@ -99,9 +99,15 @@ You have four phases each run. Execute them in order.
    Classify into one of three categories:
 
    A) SIMPLE — Handle directly:
-      - Comment/review replies (trigger_source: "comment" or "review_comment")
+      - Comment/review replies that ask a question or request a quick action
+        (trigger_source: "comment" or "review_comment")
         → Respond to the comment with a helpful reply
         → zelvinator state <id> done
+      - Comment/review replies that request a CODE REVIEW of a PR
+        (trigger_comment contains "review", "code review", "review this")
+        → Do NOT review yourself
+        → zelvinator state <id> needs_review
+        → GLM will do the architectural review
       - Simple fixes: ≤2 files, follows existing code patterns, no new interfaces
         → Clone repo, implement, commit, push, open PR
         → zelvinator state <id> implementing
