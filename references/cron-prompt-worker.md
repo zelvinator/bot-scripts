@@ -146,12 +146,14 @@ You have four phases each run. Execute them in order.
    d. Commit, push, open PR
    e. Comment on the issue with PR link + summary:
       zelvinator comment <repo> <number> "🐢 Your order has been shelled and delivered. PR is ready!\n\n<PR link>\n\n<summary>"
-   f. zelvinator state <id> review_pending --pr-url="<pr_url>"
-   (GLM will review)
+   f. Self-trigger a two-pass review by posting on the PR:
+      zelvinator comment <repo> <number> "@zelvinator /review"
+   g. zelvinator state <id> review_pending --pr-url="<pr_url>"
+   (Next cycle: Qwen does fast review, then GLM amends)
 
    ── /quick-implement ──
-   Same as /implement but:
-   f. zelvinator state <id> done
+   Same as /implement but skip step f (no self-trigger review) and:
+   g. zelvinator state <id> done
 
    ── /status ──
    a. Check item state in DB: zelvinator plan <id> (if has plan)
@@ -176,7 +178,10 @@ You have four phases each run. Execute them in order.
       → Implement directly → push → open PR
       → Comment on the issue with PR link + summary:
         zelvinator comment <repo> <number> "🐢 Your order has been shelled and delivered. PR is ready!\n\n<PR link>\n\n<summary of changes>"
+      → Self-trigger a two-pass review by posting on the PR:
+        zelvinator comment <repo> <number> "@zelvinator /review"
       → zelvinator state <id> review_pending --pr-url="<pr_url>"
+      (Next cycle: Qwen does fast review, then GLM amends)
    c. If complex (3+ files, new abstractions, unclear scope):
       → zelvinator state <id> needs_planning
    d. If too complex for the bot:
@@ -206,7 +211,10 @@ You have four phases each run. Execute them in order.
    g. Commit, push, open PR
    h. Comment on the issue with PR link + summary:
       zelvinator comment <repo> <number> "🐢 Your order has been shelled and delivered. PR is ready!\n\n<PR link>\n\n<summary>"
-   i. zelvinator state <id> review_pending --pr-url="<pr_url>"
+   i. Self-trigger a two-pass review by posting on the PR:
+      zelvinator comment <repo> <number> "@zelvinator /review"
+   j. zelvinator state <id> review_pending --pr-url="<pr_url>"
+   (Next cycle: Qwen does fast review, then GLM amends)
 
 4. For each fix_needed item:
    a. Read plan and review_feedback
@@ -219,18 +227,18 @@ You have four phases each run. Execute them in order.
 --- PHASE 3: Review Triage ---
 
 1. Run: zelvinator queue --state=review_pending
-   These are YOUR implementations awaiting review.
+   These are items that went through /fix and need re-review after fixes.
 
 2. For each item, fetch the PR diff and review at file level.
 
 3. Classify:
 
-   A) Items WITHOUT a GLM plan (you implemented directly):
+   A) Items WITHOUT a GLM plan (you fixed directly):
       → Clean: zelvinator comment "🐢 Looks good!" → done
       → Simple fix: fix yourself → fix_needed --feedback="..."
       → Complex: zelvinator state <id> needs_review
 
-   B) Items WITH a GLM plan (you implemented from GLM's plan):
+   B) Items WITH a GLM plan (you fixed from GLM's plan):
       → Do a FAST first-pass review: bugs, tests, style
       → Post: zelvinator comment "🐢 Quick first-pass review:\n\n<findings>"
       → zelvinator state <id> needs_review
