@@ -1,6 +1,13 @@
-# Tracker file — do not commit (changes every run)
-.zelvinator-processed.txt
-*.lock
-
-.zelvinator-*
+# Compiled binary — do not commit
 scripts/zelvinator/zelvinator
+
+# Old tracker files (legacy, kept for migration reference)
+.zelvinator-processed.txt
+.zelvinator-ci-attempts.txt
+*.lock
+.zelvinator-*
+
+# SQLite state database (lives outside the repo now, but just in case)
+*.db
+*.db-wal
+*.db-shm

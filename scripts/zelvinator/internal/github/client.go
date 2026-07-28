@@ -4,10 +4,7 @@ package github
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 
@@ -62,7 +59,6 @@ type SearchResult struct {
 	User          User         `json:"user"`
 	Body          string       `json:"body,omitempty"`
 	Assignees     []User       `json:"assignees,omitempty"`
-	Comments      int          `json:"comments,omitempty"`
 	HeadRef       string       `json:"headRefName,omitempty"`
 	HeadRefOid    string       `json:"headRefOid,omitempty"`
 	UpdatedAt     string       `json:"updatedAt,omitempty"`
@@ -156,7 +152,6 @@ func convertIssue(i *gh.Issue) SearchResult {
 		HTMLURL:       i.GetHTMLURL(),
 		RepositoryURL: i.GetRepositoryURL(),
 		Body:          i.GetBody(),
-		Comments:      i.GetComments(),
 		User:          User{Login: i.GetUser().GetLogin()},
 		HeadRef:       i.GetPullRequestLinks().GetURL(),
 	}
@@ -177,16 +172,15 @@ func convertIssue(i *gh.Issue) SearchResult {
 }
 
 // SearchIssues finds issues mentioning @zelvinator in body/title.
-func (c *Client) SearchIssues() ([]SearchResult, error) {
-	q := `mentions:zelvinator is:issue state:open`
+func (c *Client) SearchIssues(org string) ([]SearchResult, error) {
+	q := fmt.Sprintf("@zelvinator in:title,body is:issue org:%s state:open", org)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
-	// Filter to only issues where @zelvinator is in body/title (not just comments)
 	var issues []SearchResult
 	for _, item := range results {
-		if item.PullReq == nil && (strings.Contains(item.Body, "@zelvinator") || strings.Contains(item.Title, "@zelvinator")) {
+		if item.PullReq == nil {
 			issues = append(issues, item)
 		}
 	}
@@ -194,17 +188,15 @@ func (c *Client) SearchIssues() ([]SearchResult, error) {
 }
 
 // SearchIssueComments finds issues mentioning @zelvinator in comments.
-func (c *Client) SearchIssueComments() ([]SearchResult, error) {
-	q := `mentions:zelvinator is:issue state:open`
+func (c *Client) SearchIssueComments(org string) ([]SearchResult, error) {
+	q := fmt.Sprintf("@zelvinator in:comments is:issue org:%s state:open", org)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
-	// Only include issues where @zelvinator is NOT in body/title
-	// (those are covered by SearchIssues) AND that have comments
 	var issues []SearchResult
 	for _, item := range results {
-		if item.PullReq == nil && item.Comments > 0 && !strings.Contains(item.Body, "@zelvinator") && !strings.Contains(item.Title, "@zelvinator") {
+		if item.PullReq == nil {
 			issues = append(issues, item)
 		}
 	}
@@ -212,16 +204,15 @@ func (c *Client) SearchIssueComments() ([]SearchResult, error) {
 }
 
 // SearchPRs finds PRs mentioning @zelvinator in body/title.
-func (c *Client) SearchPRs() ([]SearchResult, error) {
-	q := `mentions:zelvinator type:pr state:open`
+func (c *Client) SearchPRs(org string) ([]SearchResult, error) {
+	q := fmt.Sprintf("@zelvinator in:title,body type:pr org:%s state:open", org)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
-	// Filter to only PRs where @zelvinator is in body/title
 	var prs []SearchResult
 	for _, item := range results {
-		if item.PullReq != nil && (strings.Contains(item.Body, "@zelvinator") || strings.Contains(item.Title, "@zelvinator")) {
+		if item.PullReq != nil {
 			prs = append(prs, item)
 		}
 	}
@@ -229,133 +220,50 @@ func (c *Client) SearchPRs() ([]SearchResult, error) {
 }
 
 // SearchPRComments finds PRs mentioning @zelvinator in comments.
-func (c *Client) SearchPRComments() ([]SearchResult, error) {
-	q := `mentions:zelvinator type:pr state:open`
+func (c *Client) SearchPRComments(org string) ([]SearchResult, error) {
+	q := fmt.Sprintf("@zelvinator in:comments type:pr org:%s state:open", org)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
 	}
-	// Only include PRs where @zelvinator is NOT in body/title
-	// (those are covered by SearchPRs) AND that have comments
 	var prs []SearchResult
 	for _, item := range results {
-		if item.PullReq != nil && item.Comments > 0 && !strings.Contains(item.Body, "@zelvinator") && !strings.Contains(item.Title, "@zelvinator") {
+		if item.PullReq != nil {
 			prs = append(prs, item)
 		}
 	}
 	return prs, nil
 }
 
-// SearchAssignedIssues finds open issues assigned to a specific user across all accessible repos.
-// Uses GET /issues?filter=assigned which works for the authenticated user (unlike search API).
-func (c *Client) SearchAssignedIssues(assignee string) ([]SearchResult, error) {
-	// Fetch issues assigned to the authenticated user via the issues API
-	var raw []struct {
-		Number       int          `json:"number"`
-		Title        string       `json:"title"`
-		HTMLURL      string       `json:"html_url"`
-		Repository   Repository   `json:"repository"`
-		User         User         `json:"user"`
-		Body         string       `json:"body"`
-		PullRequest  interface{}  `json:"pull_request"`
-		Assignees    []User       `json:"assignees"`
-		RepositoryURL string      `json:"repository_url"`
-		URL          string       `json:"url"`
-	}
-	url := "https://api.github.com/issues?filter=assigned&state=open&per_page=100"
-	if err := c.GetJSON(url, &raw); err != nil {
+// SearchAssignedIssues finds open issues assigned to a specific user in an org.
+func (c *Client) SearchAssignedIssues(org, assignee string) ([]SearchResult, error) {
+	q := fmt.Sprintf("assignee:%s is:issue state:open org:%s", assignee, org)
+	results, err := c.searchIssues(q)
+	if err != nil {
 		return nil, err
 	}
-	var results []SearchResult
-	for _, item := range raw {
-		// Only include issues (not PRs)
-		if item.PullRequest != nil {
-			continue
+	var issues []SearchResult
+	for _, item := range results {
+		if item.PullReq == nil {
+			issues = append(issues, item)
 		}
-		// Verify the issue is actually assigned to the specified user
-		assigneeMatch := false
-		for _, a := range item.Assignees {
-			if a.Login == assignee {
-				assigneeMatch = true
-				break
-			}
-		}
-		if !assigneeMatch {
-			continue
-		}
-		sr := SearchResult{
-			Number:        item.Number,
-			Title:         item.Title,
-			HTMLURL:       item.HTMLURL,
-			Body:          item.Body,
-			User:          item.User,
-			Assignees:     item.Assignees,
-			RepositoryURL: item.RepositoryURL,
-			URL:           item.URL,
-		}
-		if item.Repository.NameWithOwner != "" {
-			sr.Repository = item.Repository
-		} else if item.RepositoryURL != "" {
-			sr.Repository = Repository{
-				FullName: strings.TrimPrefix(item.RepositoryURL, "https://api.github.com/repos/"),
-			}
-		}
-		results = append(results, sr)
+	}
+	return issues, nil
+}
+
+// SearchAuthorPRs finds open PRs by a specific author in an org.
+func (c *Client) SearchAuthorPRs(org, author string) ([]SearchResult, error) {
+	q := fmt.Sprintf("author:%s is:pr state:open org:%s", author, org)
+	results, err := c.searchIssues(q)
+	if err != nil {
+		return nil, err
 	}
 	return results, nil
 }
 
-// SearchAuthorPRs finds open PRs by a specific author across all accessible repos.
-// Uses GET /issues?filter=created which works for the authenticated user (unlike search API).
-func (c *Client) SearchAuthorPRs(author string) ([]SearchResult, error) {
-	// Fetch issues/PRs created by the authenticated user via the issues API
-	var raw []struct {
-		Number       int          `json:"number"`
-		Title        string       `json:"title"`
-		HTMLURL      string       `json:"html_url"`
-		Repository   Repository   `json:"repository"`
-		User         User         `json:"user"`
-		Body         string       `json:"body"`
-		PullRequest  interface{}  `json:"pull_request"`
-		RepositoryURL string      `json:"repository_url"`
-		URL          string       `json:"url"`
-	}
-	url := "https://api.github.com/issues?filter=created&state=open&per_page=100"
-	if err := c.GetJSON(url, &raw); err != nil {
-		return nil, err
-	}
-	var results []SearchResult
-	for _, item := range raw {
-		// Only include PRs
-		if item.PullRequest == nil {
-			continue
-		}
-		sr := SearchResult{
-			Number:        item.Number,
-			Title:         item.Title,
-			HTMLURL:       item.HTMLURL,
-			Body:          item.Body,
-			User:          item.User,
-			RepositoryURL: item.RepositoryURL,
-			URL:           item.URL,
-			PullReq:       &PullReqInfo{URL: item.URL},
-		}
-		if item.Repository.NameWithOwner != "" {
-			sr.Repository = item.Repository
-		} else if item.RepositoryURL != "" {
-			sr.Repository = Repository{
-				FullName: strings.TrimPrefix(item.RepositoryURL, "https://api.github.com/repos/"),
-			}
-		}
-		results = append(results, sr)
-	}
-	return results, nil
-}
-
-// SearchOpenPRs finds open PRs mentioning @zelvinator, limited to recently updated.
-// Used to discover PRs that mention @zelvinator only in review comments.
-func (c *Client) SearchOpenPRs() ([]SearchResult, error) {
-	q := `mentions:zelvinator type:pr state:open`
+// SearchOpenPRs finds all open PRs in an org, limited to recently updated.
+func (c *Client) SearchOpenPRs(org string) ([]SearchResult, error) {
+	q := fmt.Sprintf("is:pr state:open org:%s", org)
 	results, err := c.searchIssues(q)
 	if err != nil {
 		return nil, err
@@ -469,35 +377,12 @@ func (c *Client) ReplyToReviewComment(repo string, number int, reviewCommentID i
 	if owner == "" {
 		return fmt.Errorf("invalid repo: %s", repo)
 	}
-	// go-github's PullRequestComment uses in_reply_to_id which is incorrect.
-	// The API expects in_reply_to. Use raw HTTP to control the payload exactly.
-	payload := map[string]interface{}{
-		"body":       body,
-		"in_reply_to": reviewCommentID,
+	comment := &gh.PullRequestComment{
+		Body:      gh.String(body),
+		InReplyTo: gh.Int64(int64(reviewCommentID)),
 	}
-	jsonBody, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/comments", owner, name, number)
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBody)))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "zelvinator-bot/1.0")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("POST %s: HTTP %d: %s", url, resp.StatusCode, string(respBody))
-	}
-	return nil
+	_, _, err := c.client.PullRequests.CreateComment(context.Background(), owner, name, number, comment)
+	return err
 }
 
 // ── CI Check Types ──

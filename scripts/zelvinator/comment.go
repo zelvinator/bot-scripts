@@ -83,3 +83,37 @@ func runReplyReview(client *github.Client, args []string) {
 	}
 	fmt.Printf("Inline reply posted on %s#%d (review comment %d)\n", repo, number, reviewCommentID)
 }
+
+const helpText = `🐢 I don't recognize that command. Here's what I can do:
+
+/review — two-pass review (me + GLM)
+/quick-review — fast review only
+/fix — apply review fixes (GLM reviews)
+/quick-fix — apply fixes, self-approve
+/plan — GLM creates implementation plan
+/implement — implement issue (GLM reviews)
+/quick-implement — implement, self-approve
+/status — show pipeline state
+
+Or just @zelvinator with your question.`
+
+// runHelp posts the help cheatsheet as a comment. No LLM needed.
+func runHelp(client *github.Client, args []string) {
+	if len(args) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: zelvinator help <repo> <number>\n")
+		os.Exit(1)
+	}
+	repo := args[0]
+	number, err := strconv.Atoi(args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid number: %s\n", args[1])
+		os.Exit(1)
+	}
+
+	body := "🐢 " + helpText
+	if err := client.CreateComment(repo, number, body); err != nil {
+		fmt.Fprintf(os.Stderr, "Help comment error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Help posted on %s#%d\n", repo, number)
+}
