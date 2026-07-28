@@ -54,6 +54,7 @@ type Item struct {
 	Author         string `json:"author"`
 
 	State          string  `json:"state"`
+	Command        string  `json:"command"` // slash command: /review, /fix, /plan, /implement, /quick-*, /status, or ""
 	Plan           *string `json:"plan"`
 	ReviewFeedback *string `json:"review_feedback"`
 	PRURL          *string `json:"pr_url"`
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS items (
     type            TEXT NOT NULL,
     trigger_source  TEXT NOT NULL,
     trigger_comment TEXT,
+    command         TEXT NOT NULL DEFAULT '',
     title           TEXT,
     body_preview    TEXT,
     branch          TEXT,
@@ -132,6 +134,9 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
+	// Migration: add command column if it doesn't exist (for existing DBs)
+	db.Exec("ALTER TABLE items ADD COLUMN command TEXT NOT NULL DEFAULT ''")
+
 	return &DB{db: db}, nil
 }
 
@@ -164,11 +169,11 @@ func MakeCIID(repo string, number int) string {
 // Returns true if the item was newly inserted, false if it already existed.
 func (d *DB) InsertIfNew(item Item) (bool, error) {
 	_, err := d.db.Exec(`
-		INSERT OR IGNORE INTO items (id, repo, number, type, trigger_source, trigger_comment, title, body_preview, branch, author, state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered', datetime('now'), datetime('now'))
+		INSERT OR IGNORE INTO items (id, repo, number, type, trigger_source, trigger_comment, command, title, body_preview, branch, author, state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered', datetime('now'), datetime('now'))
 	`,
 		item.ID, item.Repo, item.Number, item.Type, item.TriggerSource,
-		item.TriggerComment, item.Title, item.BodyPreview, item.Branch, item.Author,
+		item.TriggerComment, item.Command, item.Title, item.BodyPreview, item.Branch, item.Author,
 	)
 	if err != nil {
 		return false, fmt.Errorf("insert item %s: %w", item.ID, err)
@@ -190,7 +195,7 @@ func (d *DB) InsertIfNew(item Item) (bool, error) {
 // Get retrieves an item by ID.
 func (d *DB) Get(id string) (*Item, error) {
 	row := d.db.QueryRow(`
-		SELECT id, repo, number, type, trigger_source, trigger_comment, title, body_preview, branch, author,
+		SELECT id, repo, number, type, trigger_source, trigger_comment, command, title, body_preview, branch, author,
 		       state, plan, review_feedback, pr_url, attempts, max_attempts, error, created_at, updated_at
 		FROM items WHERE id = ?
 	`, id)
@@ -286,7 +291,7 @@ func (d *DB) SetError(id, errMsg string) error {
 // QueryByState returns all items in the given state.
 func (d *DB) QueryByState(state string) ([]Item, error) {
 	rows, err := d.db.Query(`
-		SELECT id, repo, number, type, trigger_source, trigger_comment, title, body_preview, branch, author,
+		SELECT id, repo, number, type, trigger_source, trigger_comment, command, title, body_preview, branch, author,
 		       state, plan, review_feedback, pr_url, attempts, max_attempts, error, created_at, updated_at
 		FROM items WHERE state = ?
 		ORDER BY created_at ASC
@@ -319,7 +324,7 @@ func (d *DB) QueryByStates(states ...string) ([]Item, error) {
 		args[i] = s
 	}
 	query := fmt.Sprintf(`
-		SELECT id, repo, number, type, trigger_source, trigger_comment, title, body_preview, branch, author,
+		SELECT id, repo, number, type, trigger_source, trigger_comment, command, title, body_preview, branch, author,
 		       state, plan, review_feedback, pr_url, attempts, max_attempts, error, created_at, updated_at
 		FROM items WHERE state IN (%s)
 		ORDER BY created_at ASC
@@ -393,7 +398,7 @@ func scanItem(row scannable) (*Item, error) {
 
 	err := row.Scan(
 		&item.ID, &item.Repo, &item.Number, &item.Type, &item.TriggerSource,
-		&triggerComment, &title, &bodyPreview, &branch, &author,
+		&triggerComment, &item.Command, &title, &bodyPreview, &branch, &author,
 		&item.State, &plan, &reviewFeedback, &prURL,
 		&item.Attempts, &item.MaxAttempts, &errMsg,
 		&item.CreatedAt, &item.UpdatedAt,
@@ -431,4 +436,57 @@ func scanItem(row scannable) (*Item, error) {
 // scanItemRows wraps scanItem for *sql.Rows (identical interface, separate for clarity).
 func scanItemRows(rows *sql.Rows) (*Item, error) {
 	return scanItem(rows)
+}
+
+// ParseCommand extracts a slash command from a trigger comment.
+// Returns the command (e.g. "/review", "/quick-fix") and the rest of the text.
+// If no command is found, returns "" and the full text.
+//
+// Examples:
+//
+//	"@zelvinator /review this PR"  → "/review", "this PR"
+//	"@zelvinator /fix"             → "/fix", ""
+//	"@zelvinator /quick-review"    → "/quick-review", ""
+//	"@zelvinator nice work"        → "", "nice work"
+func ParseCommand(comment string) (command string, rest string) {
+	// Find "@zelvinator" (case-insensitive) and look for a /command after it
+	lower := strings.ToLower(comment)
+	idx := strings.Index(lower, "@zelvinator")
+	if idx < 0 {
+		return "", comment
+	}
+
+	// Get everything after "@zelvinator"
+	after := strings.TrimSpace(comment[idx+len("@zelvinator"):])
+
+	// Check if it starts with a slash command
+	if !strings.HasPrefix(after, "/") {
+		return "", after
+	}
+
+	// Extract the command (up to first space or end of string)
+	spaceIdx := strings.Index(after, " ")
+	if spaceIdx < 0 {
+		return after, ""
+	}
+	return after[:spaceIdx], strings.TrimSpace(after[spaceIdx+1:])
+}
+
+// IsKnownCommand returns true if the command is a recognized slash command.
+func IsKnownCommand(cmd string) bool {
+	switch cmd {
+	case "/review", "/quick-review",
+		"/fix", "/quick-fix",
+		"/plan",
+		"/implement", "/quick-implement",
+		"/status", "/help":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsQuickCommand returns true if the command is a /quick-* variant (Qwen only, no GLM).
+func IsQuickCommand(cmd string) bool {
+	return strings.HasPrefix(cmd, "/quick-")
 }

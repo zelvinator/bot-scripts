@@ -170,9 +170,18 @@ func runFind(client *github.Client, cfg *config.Config, db *state.DB, args []str
 		var triggerComment string
 		var commentID int
 		for _, rc := range reviewComments {
-			if wlSet[rc.User.Login] && strings.Contains(strings.ToLower(rc.Body), "@zelvinator") {
+			if !strings.Contains(strings.ToLower(rc.Body), "@zelvinator") {
+				continue
+			}
+			if wlSet[rc.User.Login] {
 				triggerComment = rc.Body
 				commentID = rc.ID
+			} else if rc.User.Login == "zelvinator" {
+				cmd, _ := state.ParseCommand(rc.Body)
+				if cmd != "" && state.IsKnownCommand(cmd) {
+					triggerComment = rc.Body
+					commentID = rc.ID
+				}
 			}
 		}
 		if triggerComment == "" {
@@ -395,9 +404,20 @@ func findHumanTriggerComment(client *github.Client, item github.SearchResult, wh
 	var trigger string
 	var commentID int
 	for _, c := range comments {
-		if wl[c.User.Login] && strings.Contains(strings.ToLower(c.Body), "@zelvinator") {
+		if !strings.Contains(strings.ToLower(c.Body), "@zelvinator") {
+			continue
+		}
+		// Whitelisted humans can trigger anything.
+		// zelvinator itself can only trigger slash commands (self-triggering for pipeline automation).
+		if wl[c.User.Login] {
 			trigger = c.Body
 			commentID = c.ID
+		} else if c.User.Login == "zelvinator" {
+			cmd, _ := state.ParseCommand(c.Body)
+			if cmd != "" && state.IsKnownCommand(cmd) {
+				trigger = c.Body
+				commentID = c.ID
+			}
 		}
 	}
 	return trigger, commentID
@@ -405,6 +425,7 @@ func findHumanTriggerComment(client *github.Client, item github.SearchResult, wh
 
 // toStateItem converts a FindItem to a state.Item for DB insertion.
 func toStateItem(f FindItem) state.Item {
+	cmd, _ := state.ParseCommand(f.TriggerComment)
 	return state.Item{
 		ID:             f.ID,
 		Repo:           f.Repo,
@@ -412,6 +433,7 @@ func toStateItem(f FindItem) state.Item {
 		Type:           f.Type,
 		TriggerSource:  f.TriggerSource,
 		TriggerComment: f.TriggerComment,
+		Command:        cmd,
 		Title:          f.Title,
 		BodyPreview:    f.BodyPreview,
 		Branch:         f.Branch,

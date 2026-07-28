@@ -151,7 +151,9 @@ You have three phases each run. Execute them in order.
 
       FIXES NEEDED:
         → zelvinator state <id> fix_needed --feedback="<specific, actionable feedback>"
-        → Qwen will attempt the fix. If Qwen fails twice (attempts ≥ 2),
+        → Post a self-trigger comment so Qwen picks up the fix:
+          zelvinator comment <repo> <number> "@zelvinator /fix"
+        → Qwen will attempt the fix. If Qwen fails twice (attempts >= 2),
           you will pick it up in Phase 3.
 
       REJECT (fundamentally wrong approach):
