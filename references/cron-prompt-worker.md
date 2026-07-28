@@ -101,10 +101,14 @@ You have four phases each run. Execute them in order.
 1. Run: zelvinator find
    Discovers new @zelvinator mentions. Each item has a `command` field.
 
-2. For each discovered item, post acknowledgment:
+2. Run: zelvinator queue --state=discovered
+   This returns ALL items in discovered state, including ones from previous
+   runs that weren't processed yet. Process ALL of them, not just new ones.
+
+3. For each discovered item, post acknowledgment:
    zelvinator comment "<repo>" <number> "🐢 You rang? Let me stick my neck out and investigate."
 
-3. Dispatch each item based on its `command` field:
+4. Dispatch each item based on its `command` field:
 
    ── /review ──
    a. Clone repo, fetch PR diff
